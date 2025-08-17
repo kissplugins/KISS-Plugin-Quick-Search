@@ -37,6 +37,8 @@ A powerful yet lightweight WordPress plugin that adds intelligent search capabil
 - **XSS Protection**: All user input is properly sanitized and escaped
 - **Input Validation**: Search queries are sanitized and length-limited
 - **Efficient Loading**: Only loads on the plugins.php admin page
+- **Smart Cache Busting**: Automatic cache invalidation for development and production
+- **Debug Mode Support**: Enhanced debugging features when WP_DEBUG is enabled
 
 ## Installation
 
@@ -129,7 +131,7 @@ No warranty; use at your own risk.
 
 ## Version
 
-1.0.4
+1.0.5
 
 ## Author
 

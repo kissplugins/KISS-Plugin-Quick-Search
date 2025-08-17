@@ -5,6 +5,46 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2024-08-17
+
+### Added
+- **Smart Cache Busting System**: Intelligent asset versioning for optimal caching
+  - Uses plugin version for production environments
+  - Uses file modification time for development (when WP_DEBUG is enabled)
+  - Ensures users always get the latest JavaScript updates
+  - Prevents browser caching issues during development
+
+- **Enhanced Debug Support**: Improved debugging capabilities for developers
+  - Debug flag passed to JavaScript for conditional logging
+  - Version information available in JavaScript context
+  - Better development workflow with automatic cache invalidation
+
+- **Loading State Styling**: Added CSS for loading states
+  - Visual feedback during search operations
+  - Improved user experience with opacity and pointer-events management
+  - Consistent styling across all loading states
+
+### Enhanced
+- **Version Management**: Centralized version constant for consistency
+  - Single source of truth for plugin version
+  - Better maintenance and release management
+  - Consistent versioning across PHP and JavaScript
+
+- **Development Workflow**: Optimized for both development and production
+  - Automatic file modification time detection in debug mode
+  - Production-ready caching with version-based cache busting
+  - Seamless transition between development and production environments
+
+- **Code Organization**: Improved PHP class structure
+  - Better separation of concerns
+  - More maintainable codebase
+  - Enhanced readability and documentation
+
+### Fixed
+- **Cache Management**: Resolved potential caching issues in development
+- **Asset Loading**: Improved reliability of JavaScript asset loading
+- **Version Consistency**: Ensured version numbers are properly synchronized
+
 ## [1.0.4] - 2024-08-17
 
 ### Added

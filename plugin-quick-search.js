@@ -378,19 +378,28 @@
             const styles = `
                 <style id="pqs-match-styles">
                     .pqs-result-item.exact-match {
-                        background: #f0f6fc;
+                        background: #ffffff !important;
                         border-left: 4px solid #2271b1;
+                        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
                     }
                     .pqs-result-item.exact-match:hover {
-                        background: #e5f1fb;
+                        background: #f0f6fc !important;
                     }
                     .pqs-result-item.exact-match.selected {
-                        background: #2271b1;
-                        color: #fff;
+                        background: #2271b1 !important;
+                        color: #fff !important;
                         border-left-color: #1a5490;
                     }
                     .pqs-result-item.strong-match {
-                        background: #f8f9fa;
+                        background: #ffffff !important;
+                        border-left: 2px solid #72aee6;
+                    }
+                    .pqs-result-item.strong-match:hover {
+                        background: #f8f9fa !important;
+                    }
+                    .pqs-result-item.strong-match.selected {
+                        background: #2271b1 !important;
+                        color: #fff !important;
                     }
                     .pqs-separator {
                         padding: 5px 15px;
