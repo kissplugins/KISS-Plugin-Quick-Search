@@ -158,6 +158,9 @@
         
         // Reset the plugin list to show all
         $('#the-list tr').show();
+        
+        // Remove any existing highlight boxes
+        removeHighlightBoxes();
     }
     
     // Filter plugins based on search query
@@ -231,6 +234,65 @@
         }
     }
     
+    // Create a red highlight box around an element
+    function createHighlightBox($element) {
+        // Remove any existing highlight boxes first
+        removeHighlightBoxes();
+        
+        // Get the position and dimensions of the target element
+        const offset = $element.offset();
+        const width = $element.outerWidth();
+        const height = $element.outerHeight();
+        
+        // Create the highlight box
+        const $highlightBox = $('<div class="pqs-highlight-box"></div>');
+        
+        // Style the highlight box
+        $highlightBox.css({
+            position: 'absolute',
+            top: offset.top - 10,
+            left: offset.left - 10,
+            width: width + 20,
+            height: height + 20,
+            border: '10px solid red',
+            borderRadius: '4px',
+            pointerEvents: 'none',
+            zIndex: 9999,
+            boxSizing: 'border-box',
+            animation: 'pqsPulse 2s ease-in-out infinite'
+        });
+        
+        // Add the highlight box to the body
+        $('body').append($highlightBox);
+        
+        // Add pulse animation styles if not already present
+        if (!$('#pqs-highlight-styles').length) {
+            const styles = `
+                <style id="pqs-highlight-styles">
+                    @keyframes pqsPulse {
+                        0%, 100% {
+                            opacity: 1;
+                            box-shadow: 0 0 20px rgba(255, 0, 0, 0.5);
+                        }
+                        50% {
+                            opacity: 0.8;
+                            box-shadow: 0 0 40px rgba(255, 0, 0, 0.8);
+                        }
+                    }
+                    .pqs-highlight-box {
+                        transition: all 0.3s ease;
+                    }
+                </style>
+            `;
+            $('head').append(styles);
+        }
+    }
+    
+    // Remove all highlight boxes
+    function removeHighlightBoxes() {
+        $('.pqs-highlight-box').remove();
+    }
+    
     // Select the current result and filter the page
     function selectCurrentResult() {
         if (filteredPlugins.length === 0) return;
@@ -248,11 +310,24 @@
         // Close modal
         closeModal();
         
-        // Scroll to the first result
+        // Create highlight box around the selected plugin
         if (selectedPlugin && selectedPlugin.element) {
+            const $selectedElement = $(selectedPlugin.element);
+            
+            // Scroll to the selected plugin
             $('html, body').animate({
-                scrollTop: $(selectedPlugin.element).offset().top - 100
-            }, 300);
+                scrollTop: $selectedElement.offset().top - 150
+            }, 300, function() {
+                // Create the highlight box after scrolling is complete
+                createHighlightBox($selectedElement);
+                
+                // Optionally remove the highlight after a few seconds
+                setTimeout(function() {
+                    $('.pqs-highlight-box').fadeOut(1000, function() {
+                        $(this).remove();
+                    });
+                }, 5000); // Remove after 5 seconds
+            });
         }
     }
     
@@ -279,5 +354,26 @@
         // Remove potentially dangerous characters and limit length
         return input.replace(/[<>]/g, '').substring(0, 100);
     }
+    
+    // Handle window resize to update highlight box position
+    $(window).on('resize scroll', function() {
+        const $highlightBox = $('.pqs-highlight-box');
+        if ($highlightBox.length) {
+            // Find the highlighted element
+            const $highlightedRow = $('#the-list tr:visible').eq(selectedIndex);
+            if ($highlightedRow.length) {
+                const offset = $highlightedRow.offset();
+                const width = $highlightedRow.outerWidth();
+                const height = $highlightedRow.outerHeight();
+                
+                $highlightBox.css({
+                    top: offset.top - 10,
+                    left: offset.left - 10,
+                    width: width + 20,
+                    height: height + 20
+                });
+            }
+        }
+    });
     
 })(jQuery);
