@@ -5,24 +5,41 @@
     let selectedIndex = 0;
     let filteredPlugins = [];
     let allPlugins = [];
+    let searchCache = new Map(); // Cache search results
+    let debounceTimer = null;
+    const DEBOUNCE_DELAY = 150; // milliseconds
+    const MAX_SCORING_ITEMS = 100; // Stop scoring after this many matches
+    const MAX_DISPLAY_ITEMS = 20; // Maximum items to display
     
     // Initialize on document ready
     $(document).ready(function() {
         console.log('Plugin Quick Search: Initializing...');
+        const startTime = performance.now();
+        
         collectPluginData();
         console.log('Plugin Quick Search: Found', allPlugins.length, 'plugins');
+        
         createModal();
         bindKeyboardShortcut();
-        console.log('Plugin Quick Search: Ready! Press Cmd/Ctrl+Shift+P to search');
+        
+        const loadTime = performance.now() - startTime;
+        console.log(`Plugin Quick Search: Ready in ${loadTime.toFixed(2)}ms! Press Cmd/Ctrl+Shift+P to search`);
+        
+        // Log version info if available
+        if (typeof pqs_ajax !== 'undefined' && pqs_ajax.version) {
+            console.log('Plugin Quick Search Version:', pqs_ajax.version);
+        }
     });
     
-    // Collect plugin data from the page
+    // Collect plugin data from the page with pre-cached lowercase strings
     function collectPluginData() {
         $('#the-list tr').each(function() {
             const $row = $(this);
             const $pluginTitle = $row.find('.plugin-title strong');
             const pluginName = $pluginTitle.text().trim();
             const pluginDesc = $row.find('.plugin-description').text().trim();
+            
+            if (!pluginName) return; // Early exit if no name
             
             // Extract version number from the plugin row
             let version = '';
@@ -35,14 +52,18 @@
                 }
             }
             
-            if (pluginName) {
-                allPlugins.push({
-                    name: pluginName,
-                    description: pluginDesc,
-                    version: version,
-                    element: $row[0]
-                });
-            }
+            // Pre-cache lowercase strings for faster searching
+            allPlugins.push({
+                name: pluginName,
+                nameLower: pluginName.toLowerCase(), // Pre-cached
+                description: pluginDesc,
+                descriptionLower: pluginDesc.toLowerCase(), // Pre-cached
+                version: version,
+                element: $row[0],
+                // Pre-calculate some properties for scoring
+                wordCount: pluginName.split(/\s+/).length,
+                hasForIn: pluginName.includes(' for ') || pluginName.includes(' - ')
+            });
         });
     }
     
@@ -56,7 +77,8 @@
                                id="pqs-search-input" 
                                class="pqs-search-input" 
                                placeholder="Type to search plugins..." 
-                               autocomplete="off">
+                               autocomplete="off"
+                               spellcheck="false">
                     </div>
                     <div class="pqs-results" id="pqs-results"></div>
                     <div class="pqs-help">
@@ -86,7 +108,6 @@
             // Check for Cmd/Ctrl + Shift + P
             if ((e.metaKey || e.ctrlKey) && e.shiftKey &&
                 (e.key === 'P' || e.keyCode === 80 || e.which === 80)) {
-                console.log('Plugin Quick Search shortcut triggered!');
                 e.preventDefault();
                 toggleModal();
             }
@@ -97,13 +118,26 @@
             }
         });
         
-        // Handle search input
+        // Handle search input with debouncing
         $('#pqs-search-input').on('input', function() {
             const query = sanitizeInput($(this).val());
-            filterPlugins(query);
+            
+            // Clear existing timer
+            if (debounceTimer) {
+                clearTimeout(debounceTimer);
+            }
+            
+            // Add loading state
+            $('#pqs-results').addClass('pqs-loading');
+            
+            // Set new timer for debounced search
+            debounceTimer = setTimeout(function() {
+                filterPlugins(query);
+                $('#pqs-results').removeClass('pqs-loading');
+            }, DEBOUNCE_DELAY);
         });
         
-        // Handle keyboard navigation in search
+        // Handle keyboard navigation in search (no debounce needed)
         $('#pqs-search-input').on('keydown', function(e) {
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
@@ -113,6 +147,11 @@
                 navigateResults(-1);
             } else if (e.key === 'Enter') {
                 e.preventDefault();
+                // Cancel any pending search
+                if (debounceTimer) {
+                    clearTimeout(debounceTimer);
+                    debounceTimer = null;
+                }
                 selectCurrentResult();
             }
         });
@@ -147,6 +186,9 @@
         $('#pqs-overlay').addClass('active');
         $('#pqs-search-input').val('').focus();
         
+        // Clear cache when opening modal (optional - remove if you want persistent cache)
+        searchCache.clear();
+        
         // Show all plugins initially
         filterPlugins('');
     }
@@ -156,6 +198,12 @@
         modalOpen = false;
         $('#pqs-overlay').removeClass('active');
         
+        // Cancel any pending search
+        if (debounceTimer) {
+            clearTimeout(debounceTimer);
+            debounceTimer = null;
+        }
+        
         // Reset the plugin list to show all
         $('#the-list tr').show();
         
@@ -163,140 +211,167 @@
         removeHighlightBoxes();
     }
     
-    // Calculate relevance score for search ranking
-    function calculateRelevanceScore(plugin, query) {
-        const lowerName = plugin.name.toLowerCase();
-        const lowerDesc = plugin.description.toLowerCase();
-        const lowerQuery = query.toLowerCase();
+    // Optimized relevance scoring with early exits
+    function calculateRelevanceScore(plugin, lowerQuery) {
+        // Use pre-cached lowercase strings
+        const lowerName = plugin.nameLower;
         
         let score = 0;
         
         // Exact match of full name (highest priority)
         if (lowerName === lowerQuery) {
-            score += 1000;
+            return 1000; // Early exit for exact match
         }
         
         // Name starts with query (very high priority)
-        else if (lowerName.startsWith(lowerQuery)) {
-            score += 500;
+        if (lowerName.startsWith(lowerQuery)) {
+            score = 500;
         }
-        
         // Query is the first word in the name
         else if (lowerName.split(/\s+/)[0] === lowerQuery) {
-            score += 400;
+            score = 400;
         }
-        
         // Name contains query as a whole word
         else if (new RegExp('\\b' + lowerQuery + '\\b', 'i').test(plugin.name)) {
-            score += 300;
+            score = 300;
         }
-        
         // Name contains query (partial match)
         else if (lowerName.includes(lowerQuery)) {
-            score += 100;
+            score = 100;
             // Bonus for earlier position
             const position = lowerName.indexOf(lowerQuery);
             score += Math.max(50 - position, 0);
         }
         
-        // Description contains query
-        if (lowerDesc.includes(lowerQuery)) {
+        // Only check description if we have some score or no name match
+        if (score < 100 && plugin.descriptionLower.includes(lowerQuery)) {
             score += 10;
         }
         
-        // Penalize plugins with very long names (likely extensions/add-ons)
-        const wordCount = plugin.name.split(/\s+/).length;
-        if (wordCount > 3) {
-            score -= (wordCount - 3) * 5;
+        // Use pre-calculated properties
+        if (plugin.wordCount > 3) {
+            score -= (plugin.wordCount - 3) * 5;
         }
         
-        // Boost official/core plugins (usually have simpler names)
-        if (!plugin.name.includes(' for ') && !plugin.name.includes(' - ')) {
+        if (!plugin.hasForIn) {
             score += 20;
         }
         
         return score;
     }
     
-    // Filter plugins based on search query with smart ranking
+    // Filter plugins with caching and optimizations
     function filterPlugins(query) {
         selectedIndex = 0;
-        filteredPlugins = [];
         
+        // Early exit for empty query
         if (query === '') {
-            filteredPlugins = [...allPlugins];
-        } else {
-            const lowerQuery = query.toLowerCase();
-            
-            // First, find all matching plugins
-            const matchingPlugins = allPlugins.filter(plugin => {
-                return plugin.name.toLowerCase().includes(lowerQuery) ||
-                       plugin.description.toLowerCase().includes(lowerQuery);
-            });
-            
-            // Calculate relevance scores
-            const scoredPlugins = matchingPlugins.map(plugin => ({
-                ...plugin,
-                score: calculateRelevanceScore(plugin, query)
-            }));
-            
-            // Sort by relevance score (highest first)
-            scoredPlugins.sort((a, b) => b.score - a.score);
-            
-            // Remove score property and assign to filteredPlugins
-            filteredPlugins = scoredPlugins.map(({ score, ...plugin }) => plugin);
-            
-            // Limit results for very common terms
-            if (filteredPlugins.length > 20 && query.length < 5) {
-                // For short queries with many results, show only top matches
-                filteredPlugins = filteredPlugins.slice(0, 15);
+            filteredPlugins = allPlugins.slice(0, MAX_DISPLAY_ITEMS);
+            renderResults();
+            return;
+        }
+        
+        const lowerQuery = query.toLowerCase();
+        
+        // Check cache first
+        if (searchCache.has(lowerQuery)) {
+            filteredPlugins = searchCache.get(lowerQuery);
+            renderResults();
+            return;
+        }
+        
+        // First pass: Find matching plugins (limit to MAX_SCORING_ITEMS for performance)
+        const matchingPlugins = [];
+        let matchCount = 0;
+        
+        for (let i = 0; i < allPlugins.length && matchCount < MAX_SCORING_ITEMS; i++) {
+            const plugin = allPlugins[i];
+            // Use pre-cached lowercase strings
+            if (plugin.nameLower.includes(lowerQuery) || 
+                plugin.descriptionLower.includes(lowerQuery)) {
+                matchingPlugins.push(plugin);
+                matchCount++;
             }
         }
+        
+        // If no matches found, update and exit early
+        if (matchingPlugins.length === 0) {
+            filteredPlugins = [];
+            searchCache.set(lowerQuery, filteredPlugins);
+            renderResults();
+            return;
+        }
+        
+        // Calculate relevance scores
+        const scoredPlugins = matchingPlugins.map(plugin => ({
+            ...plugin,
+            score: calculateRelevanceScore(plugin, lowerQuery)
+        }));
+        
+        // Sort by relevance score (highest first)
+        scoredPlugins.sort((a, b) => b.score - a.score);
+        
+        // Limit results for display
+        const limitedResults = scoredPlugins.slice(0, MAX_DISPLAY_ITEMS);
+        
+        // Remove score property and assign to filteredPlugins
+        filteredPlugins = limitedResults.map(({ score, ...plugin }) => plugin);
+        
+        // Cache the results
+        searchCache.set(lowerQuery, filteredPlugins);
         
         renderResults();
     }
     
-    // Render the search results with visual hierarchy
+    // Optimized render function
     function renderResults() {
         const $results = $('#pqs-results');
-        $results.empty();
         
         if (filteredPlugins.length === 0) {
             $results.html('<div class="pqs-no-results">No plugins found</div>');
             return;
         }
         
-        // Add a separator after the first result if it's a strong match
+        // Build HTML in memory first (faster than multiple DOM operations)
+        let html = '';
         let addedSeparator = false;
+        const query = $('#pqs-search-input').val().toLowerCase();
         
         filteredPlugins.forEach((plugin, index) => {
             // Check if this is likely a primary/exact match
-            const query = $('#pqs-search-input').val().toLowerCase();
-            const isExactMatch = plugin.name.toLowerCase() === query;
-            const isStrongMatch = plugin.name.toLowerCase().startsWith(query);
+            const isExactMatch = plugin.nameLower === query;
+            const isStrongMatch = plugin.nameLower.startsWith(query);
             
             // Add separator after first result if it's a strong match and there are more results
             if (index === 1 && !addedSeparator && 
-                (filteredPlugins[0].name.toLowerCase() === query || 
-                 filteredPlugins[0].name.toLowerCase().startsWith(query))) {
-                $results.append('<div class="pqs-separator">Other matches</div>');
+                filteredPlugins.length > 1 &&
+                (filteredPlugins[0].nameLower === query || 
+                 filteredPlugins[0].nameLower.startsWith(query))) {
+                html += '<div class="pqs-separator">Other matches</div>';
                 addedSeparator = true;
             }
             
             // Show version for the first result
             const showVersion = index === 0 && plugin.version;
             
-            const $item = $(`
-                <div class="pqs-result-item ${index === selectedIndex ? 'selected' : ''} ${isExactMatch ? 'exact-match' : ''} ${isStrongMatch && !isExactMatch ? 'strong-match' : ''}" data-index="${index}">
+            const classes = ['pqs-result-item'];
+            if (index === selectedIndex) classes.push('selected');
+            if (isExactMatch) classes.push('exact-match');
+            else if (isStrongMatch) classes.push('strong-match');
+            
+            html += `
+                <div class="${classes.join(' ')}" data-index="${index}">
                     <div class="pqs-plugin-name">
                         ${isExactMatch ? '⭐ ' : ''}${escapeHtml(plugin.name)}
                         ${showVersion ? `<span class="pqs-version">v${escapeHtml(plugin.version)}</span>` : ''}
                     </div>
                     ${plugin.description ? `<div class="pqs-plugin-desc">${escapeHtml(plugin.description)}</div>` : ''}
                 </div>
-            `);
-            $results.append($item);
+            `;
         });
+        
+        // Single DOM update
+        $results.html(html);
         
         // Add custom styles for match types if not present
         if (!$('#pqs-match-styles').length) {
@@ -346,6 +421,9 @@
                     }
                     .pqs-result-item.exact-match.selected .pqs-plugin-name {
                         color: #fff;
+                    }
+                    .pqs-loading {
+                        opacity: 0.5;
                     }
                 </style>
             `;

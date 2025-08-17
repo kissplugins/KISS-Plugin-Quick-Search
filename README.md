@@ -27,6 +27,10 @@ A powerful yet lightweight WordPress plugin that adds intelligent search capabil
 - **Smooth Scrolling**: Auto-scroll to selected plugin with smooth animation
 - **Responsive Design**: Modal adapts to different screen sizes
 - **Auto-hide Highlights**: Highlight boxes fade out automatically after 5 seconds
+- **Loading States**: Visual feedback during search operations
+- **Version Display**: Shows plugin version for the top search result
+- **Enhanced Styling**: Improved visual hierarchy with better color schemes
+- **Spell Check Disabled**: Search input optimized for plugin names
 
 ### Security & Performance
 - **Capability Checks**: Only loads for users with plugin management permissions
@@ -78,10 +82,16 @@ The plugin uses a sophisticated relevance scoring system:
 - **Bonuses**: Given to simpler, likely core plugins
 
 ### Performance Optimizations
-- Results limited to 15 items for searches under 5 characters
-- Efficient DOM manipulation with jQuery
-- Responsive highlight box positioning on scroll/resize
-- Smooth animations with CSS transitions
+- **Search Debouncing**: 150ms delay prevents excessive searches while typing
+- **Search Result Caching**: Previously searched terms are cached for instant results
+- **Pre-cached Lowercase Strings**: Plugin names and descriptions are converted to lowercase once during initialization
+- **Early Exit Optimizations**: Exact matches return immediately without further processing
+- **Limited Scoring**: Only processes first 100 matching plugins for complex searches
+- **Batch DOM Updates**: Results are built in memory and updated in a single operation
+- **Smart Result Limiting**: Maximum 20 items displayed, with intelligent truncation
+- **Efficient DOM manipulation**: Optimized jQuery operations and minimal DOM queries
+- **Responsive highlight box positioning**: Auto-adjusts on scroll/resize events
+- **Smooth animations**: CSS transitions for professional user experience
 
 ## Requirements
 
@@ -119,7 +129,7 @@ No warranty; use at your own risk.
 
 ## Version
 
-1.0.3
+1.0.4
 
 ## Author
 
