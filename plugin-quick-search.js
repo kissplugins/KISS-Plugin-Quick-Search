@@ -5,18 +5,33 @@
     let selectedIndex = 0;
     let filteredPlugins = [];
     let allPlugins = [];
+    let searchCache = new Map(); // Cache search results
+    let debounceTimer = null;
+    const DEBOUNCE_DELAY = 150; // milliseconds
+    const MAX_SCORING_ITEMS = 100; // Stop scoring after this many matches
+    const MAX_DISPLAY_ITEMS = 20; // Maximum items to display
     
     // Initialize on document ready
     $(document).ready(function() {
         console.log('Plugin Quick Search: Initializing...');
+        const startTime = performance.now();
+        
         collectPluginData();
         console.log('Plugin Quick Search: Found', allPlugins.length, 'plugins');
+        
         createModal();
         bindKeyboardShortcut();
-        console.log('Plugin Quick Search: Ready! Press Cmd/Ctrl+Shift+P to search');
+        
+        const loadTime = performance.now() - startTime;
+        console.log(`Plugin Quick Search: Ready in ${loadTime.toFixed(2)}ms! Press Cmd/Ctrl+Shift+P to search`);
+        
+        // Log version info if available
+        if (typeof pqs_ajax !== 'undefined' && pqs_ajax.version) {
+            console.log('Plugin Quick Search Version:', pqs_ajax.version);
+        }
     });
     
-    // Collect plugin data from the page
+    // Collect plugin data from the page with pre-cached lowercase strings
     function collectPluginData() {
         $('#the-list tr').each(function() {
             const $row = $(this);
@@ -24,13 +39,31 @@
             const pluginName = $pluginTitle.text().trim();
             const pluginDesc = $row.find('.plugin-description').text().trim();
             
-            if (pluginName) {
-                allPlugins.push({
-                    name: pluginName,
-                    description: pluginDesc,
-                    element: $row[0]
-                });
+            if (!pluginName) return; // Early exit if no name
+            
+            // Extract version number from the plugin row
+            let version = '';
+            const $versionSpan = $row.find('.plugin-version-author-uri');
+            if ($versionSpan.length) {
+                const versionText = $versionSpan.text();
+                const versionMatch = versionText.match(/Version\s+([\d.]+)/i);
+                if (versionMatch) {
+                    version = versionMatch[1];
+                }
             }
+            
+            // Pre-cache lowercase strings for faster searching
+            allPlugins.push({
+                name: pluginName,
+                nameLower: pluginName.toLowerCase(), // Pre-cached
+                description: pluginDesc,
+                descriptionLower: pluginDesc.toLowerCase(), // Pre-cached
+                version: version,
+                element: $row[0],
+                // Pre-calculate some properties for scoring
+                wordCount: pluginName.split(/\s+/).length,
+                hasForIn: pluginName.includes(' for ') || pluginName.includes(' - ')
+            });
         });
     }
     
@@ -44,7 +77,8 @@
                                id="pqs-search-input" 
                                class="pqs-search-input" 
                                placeholder="Type to search plugins..." 
-                               autocomplete="off">
+                               autocomplete="off"
+                               spellcheck="false">
                     </div>
                     <div class="pqs-results" id="pqs-results"></div>
                     <div class="pqs-help">
@@ -71,22 +105,9 @@
     // Bind keyboard shortcut
     function bindKeyboardShortcut() {
         $(document).on('keydown', function(e) {
-            // Debug: Log all key combinations for testing
-            if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
-                console.log('Key combination detected:', {
-                    key: e.key,
-                    metaKey: e.metaKey,
-                    ctrlKey: e.ctrlKey,
-                    shiftKey: e.shiftKey,
-                    keyCode: e.keyCode,
-                    which: e.which
-                });
-            }
-
-            // Check for Cmd/Ctrl + Shift + P (multiple detection methods)
+            // Check for Cmd/Ctrl + Shift + P
             if ((e.metaKey || e.ctrlKey) && e.shiftKey &&
                 (e.key === 'P' || e.keyCode === 80 || e.which === 80)) {
-                console.log('Plugin Quick Search shortcut triggered!');
                 e.preventDefault();
                 toggleModal();
             }
@@ -97,13 +118,26 @@
             }
         });
         
-        // Handle search input
+        // Handle search input with debouncing
         $('#pqs-search-input').on('input', function() {
             const query = sanitizeInput($(this).val());
-            filterPlugins(query);
+            
+            // Clear existing timer
+            if (debounceTimer) {
+                clearTimeout(debounceTimer);
+            }
+            
+            // Add loading state
+            $('#pqs-results').addClass('pqs-loading');
+            
+            // Set new timer for debounced search
+            debounceTimer = setTimeout(function() {
+                filterPlugins(query);
+                $('#pqs-results').removeClass('pqs-loading');
+            }, DEBOUNCE_DELAY);
         });
         
-        // Handle keyboard navigation in search
+        // Handle keyboard navigation in search (no debounce needed)
         $('#pqs-search-input').on('keydown', function(e) {
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
@@ -113,6 +147,11 @@
                 navigateResults(-1);
             } else if (e.key === 'Enter') {
                 e.preventDefault();
+                // Cancel any pending search
+                if (debounceTimer) {
+                    clearTimeout(debounceTimer);
+                    debounceTimer = null;
+                }
                 selectCurrentResult();
             }
         });
@@ -147,6 +186,9 @@
         $('#pqs-overlay').addClass('active');
         $('#pqs-search-input').val('').focus();
         
+        // Clear cache when opening modal (optional - remove if you want persistent cache)
+        searchCache.clear();
+        
         // Show all plugins initially
         filterPlugins('');
     }
@@ -156,6 +198,12 @@
         modalOpen = false;
         $('#pqs-overlay').removeClass('active');
         
+        // Cancel any pending search
+        if (debounceTimer) {
+            clearTimeout(debounceTimer);
+            debounceTimer = null;
+        }
+        
         // Reset the plugin list to show all
         $('#the-list tr').show();
         
@@ -163,43 +211,233 @@
         removeHighlightBoxes();
     }
     
-    // Filter plugins based on search query
+    // Optimized relevance scoring with early exits
+    function calculateRelevanceScore(plugin, lowerQuery) {
+        // Use pre-cached lowercase strings
+        const lowerName = plugin.nameLower;
+        
+        let score = 0;
+        
+        // Exact match of full name (highest priority)
+        if (lowerName === lowerQuery) {
+            return 1000; // Early exit for exact match
+        }
+        
+        // Name starts with query (very high priority)
+        if (lowerName.startsWith(lowerQuery)) {
+            score = 500;
+        }
+        // Query is the first word in the name
+        else if (lowerName.split(/\s+/)[0] === lowerQuery) {
+            score = 400;
+        }
+        // Name contains query as a whole word
+        else if (new RegExp('\\b' + lowerQuery + '\\b', 'i').test(plugin.name)) {
+            score = 300;
+        }
+        // Name contains query (partial match)
+        else if (lowerName.includes(lowerQuery)) {
+            score = 100;
+            // Bonus for earlier position
+            const position = lowerName.indexOf(lowerQuery);
+            score += Math.max(50 - position, 0);
+        }
+        
+        // Only check description if we have some score or no name match
+        if (score < 100 && plugin.descriptionLower.includes(lowerQuery)) {
+            score += 10;
+        }
+        
+        // Use pre-calculated properties
+        if (plugin.wordCount > 3) {
+            score -= (plugin.wordCount - 3) * 5;
+        }
+        
+        if (!plugin.hasForIn) {
+            score += 20;
+        }
+        
+        return score;
+    }
+    
+    // Filter plugins with caching and optimizations
     function filterPlugins(query) {
         selectedIndex = 0;
-        filteredPlugins = [];
         
+        // Early exit for empty query
         if (query === '') {
-            filteredPlugins = [...allPlugins];
-        } else {
-            const lowerQuery = query.toLowerCase();
-            filteredPlugins = allPlugins.filter(plugin => {
-                return plugin.name.toLowerCase().includes(lowerQuery) ||
-                       plugin.description.toLowerCase().includes(lowerQuery);
-            });
+            filteredPlugins = allPlugins.slice(0, MAX_DISPLAY_ITEMS);
+            renderResults();
+            return;
         }
+        
+        const lowerQuery = query.toLowerCase();
+        
+        // Check cache first
+        if (searchCache.has(lowerQuery)) {
+            filteredPlugins = searchCache.get(lowerQuery);
+            renderResults();
+            return;
+        }
+        
+        // First pass: Find matching plugins (limit to MAX_SCORING_ITEMS for performance)
+        const matchingPlugins = [];
+        let matchCount = 0;
+        
+        for (let i = 0; i < allPlugins.length && matchCount < MAX_SCORING_ITEMS; i++) {
+            const plugin = allPlugins[i];
+            // Use pre-cached lowercase strings
+            if (plugin.nameLower.includes(lowerQuery) || 
+                plugin.descriptionLower.includes(lowerQuery)) {
+                matchingPlugins.push(plugin);
+                matchCount++;
+            }
+        }
+        
+        // If no matches found, update and exit early
+        if (matchingPlugins.length === 0) {
+            filteredPlugins = [];
+            searchCache.set(lowerQuery, filteredPlugins);
+            renderResults();
+            return;
+        }
+        
+        // Calculate relevance scores
+        const scoredPlugins = matchingPlugins.map(plugin => ({
+            ...plugin,
+            score: calculateRelevanceScore(plugin, lowerQuery)
+        }));
+        
+        // Sort by relevance score (highest first)
+        scoredPlugins.sort((a, b) => b.score - a.score);
+        
+        // Limit results for display
+        const limitedResults = scoredPlugins.slice(0, MAX_DISPLAY_ITEMS);
+        
+        // Remove score property and assign to filteredPlugins
+        filteredPlugins = limitedResults.map(({ score, ...plugin }) => plugin);
+        
+        // Cache the results
+        searchCache.set(lowerQuery, filteredPlugins);
         
         renderResults();
     }
     
-    // Render the search results
+    // Optimized render function
     function renderResults() {
         const $results = $('#pqs-results');
-        $results.empty();
         
         if (filteredPlugins.length === 0) {
             $results.html('<div class="pqs-no-results">No plugins found</div>');
             return;
         }
         
+        // Build HTML in memory first (faster than multiple DOM operations)
+        let html = '';
+        let addedSeparator = false;
+        const query = $('#pqs-search-input').val().toLowerCase();
+        
         filteredPlugins.forEach((plugin, index) => {
-            const $item = $(`
-                <div class="pqs-result-item ${index === selectedIndex ? 'selected' : ''}" data-index="${index}">
-                    <div class="pqs-plugin-name">${escapeHtml(plugin.name)}</div>
+            // Check if this is likely a primary/exact match
+            const isExactMatch = plugin.nameLower === query;
+            const isStrongMatch = plugin.nameLower.startsWith(query);
+            
+            // Add separator after first result if it's a strong match and there are more results
+            if (index === 1 && !addedSeparator && 
+                filteredPlugins.length > 1 &&
+                (filteredPlugins[0].nameLower === query || 
+                 filteredPlugins[0].nameLower.startsWith(query))) {
+                html += '<div class="pqs-separator">Other matches</div>';
+                addedSeparator = true;
+            }
+            
+            // Show version for the first result
+            const showVersion = index === 0 && plugin.version;
+            
+            const classes = ['pqs-result-item'];
+            if (index === selectedIndex) classes.push('selected');
+            if (isExactMatch) classes.push('exact-match');
+            else if (isStrongMatch) classes.push('strong-match');
+            
+            html += `
+                <div class="${classes.join(' ')}" data-index="${index}">
+                    <div class="pqs-plugin-name">
+                        ${isExactMatch ? '⭐ ' : ''}${escapeHtml(plugin.name)}
+                        ${showVersion ? `<span class="pqs-version">v${escapeHtml(plugin.version)}</span>` : ''}
+                    </div>
                     ${plugin.description ? `<div class="pqs-plugin-desc">${escapeHtml(plugin.description)}</div>` : ''}
                 </div>
-            `);
-            $results.append($item);
+            `;
         });
+        
+        // Single DOM update
+        $results.html(html);
+        
+        // Add custom styles for match types if not present
+        if (!$('#pqs-match-styles').length) {
+            const styles = `
+                <style id="pqs-match-styles">
+                    .pqs-result-item.exact-match {
+                        background: #ffffff !important;
+                        border-left: 4px solid #2271b1;
+                        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                    }
+                    .pqs-result-item.exact-match:hover {
+                        background: #f0f6fc !important;
+                    }
+                    .pqs-result-item.exact-match.selected {
+                        background: #2271b1 !important;
+                        color: #fff !important;
+                        border-left-color: #1a5490;
+                    }
+                    .pqs-result-item.strong-match {
+                        background: #ffffff !important;
+                        border-left: 2px solid #72aee6;
+                    }
+                    .pqs-result-item.strong-match:hover {
+                        background: #f8f9fa !important;
+                    }
+                    .pqs-result-item.strong-match.selected {
+                        background: #2271b1 !important;
+                        color: #fff !important;
+                    }
+                    .pqs-separator {
+                        padding: 5px 15px;
+                        font-size: 11px;
+                        text-transform: uppercase;
+                        color: #666;
+                        border-top: 1px solid #e0e0e0;
+                        margin-top: 5px;
+                        background: #fafafa;
+                    }
+                    .pqs-version {
+                        display: inline-block;
+                        margin-left: 8px;
+                        padding: 2px 6px;
+                        background: rgba(0, 0, 0, 0.07);
+                        border-radius: 3px;
+                        font-size: 12px;
+                        font-weight: normal;
+                        color: #555;
+                    }
+                    .pqs-result-item.selected .pqs-version {
+                        background: rgba(255, 255, 255, 0.2);
+                        color: #fff;
+                    }
+                    .pqs-result-item.exact-match .pqs-plugin-name {
+                        color: #0a4b78;
+                        font-weight: 700;
+                    }
+                    .pqs-result-item.exact-match.selected .pqs-plugin-name {
+                        color: #fff;
+                    }
+                    .pqs-loading {
+                        opacity: 0.5;
+                    }
+                </style>
+            `;
+            $('head').append(styles);
+        }
     }
     
     // Navigate through results

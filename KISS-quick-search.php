@@ -3,7 +3,7 @@
  * Plugin Name: KISS Plugin Quick Search
  * Plugin URI: https://kissplugins.com/
  * Description: Adds keyboard shortcut (Cmd+Shift+P or Ctrl+Shift+P) to quickly search and filter plugins on the Plugins page
- * Version: 1.0.2
+ * Version: 1.0.5
  * Author: KISS Plugins
  * License: GPL v2 or later
  */
@@ -14,6 +14,9 @@ if (!defined('ABSPATH')) {
 }
 
 class PluginQuickSearch {
+    
+    // Plugin version for cache busting
+    const VERSION = '1.0.3';
     
     public function __construct() {
         add_action('admin_enqueue_scripts', array($this, 'enqueue_scripts'));
@@ -30,19 +33,30 @@ class PluginQuickSearch {
             return;
         }
 
-        // Enqueue the JavaScript
+        // Get file modification time for cache busting
+        $js_file_path = plugin_dir_path(__FILE__) . 'plugin-quick-search.js';
+        $version = self::VERSION;
+        
+        // Use file modification time for development, version for production
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            $version = file_exists($js_file_path) ? filemtime($js_file_path) : self::VERSION;
+        }
+
+        // Enqueue the JavaScript with cache busting
         wp_enqueue_script(
             'plugin-quick-search',
             plugin_dir_url(__FILE__) . 'plugin-quick-search.js',
             array('jquery'),
-            '1.0.0',
+            $version,
             true
         );
 
         // Add nonce for security (future use)
         wp_localize_script('plugin-quick-search', 'pqs_ajax', array(
             'nonce' => wp_create_nonce('pqs_nonce'),
-            'ajax_url' => admin_url('admin-ajax.php')
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'version' => $version,
+            'debug' => defined('WP_DEBUG') && WP_DEBUG
         ));
 
         // Add inline CSS
@@ -163,6 +177,11 @@ class PluginQuickSearch {
                 padding: 2px 6px;
                 font-family: monospace;
                 font-size: 11px;
+            }
+            
+            .pqs-loading {
+                opacity: 0.6;
+                pointer-events: none;
             }
             
             @keyframes pqsFadeIn {
