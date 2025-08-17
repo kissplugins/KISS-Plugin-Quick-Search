@@ -10,6 +10,14 @@
     const DEBOUNCE_DELAY = 150; // milliseconds
     const MAX_SCORING_ITEMS = 100; // Stop scoring after this many matches
     const MAX_DISPLAY_ITEMS = 20; // Maximum items to display
+
+    // Default settings (will be overridden by PHP settings)
+    let highlightSettings = {
+        highlight_duration: 8000,  // 8 seconds
+        fade_duration: 2000,       // 2 seconds
+        highlight_color: '#ff0000', // Red
+        highlight_opacity: 1.0     // Full opacity
+    };
     
     // Initialize on document ready
     $(document).ready(function() {
@@ -24,10 +32,16 @@
         
         const loadTime = performance.now() - startTime;
         console.log(`Plugin Quick Search: Ready in ${loadTime.toFixed(2)}ms! Press Cmd/Ctrl+Shift+P to search`);
-        
-        // Log version info if available
-        if (typeof pqs_ajax !== 'undefined' && pqs_ajax.version) {
-            console.log('Plugin Quick Search Version:', pqs_ajax.version);
+
+        // Load settings from PHP if available
+        if (typeof pqs_ajax !== 'undefined') {
+            if (pqs_ajax.version) {
+                console.log('Plugin Quick Search Version:', pqs_ajax.version);
+            }
+            if (pqs_ajax.settings) {
+                highlightSettings = { ...highlightSettings, ...pqs_ajax.settings };
+                console.log('Plugin Quick Search: Loaded custom settings', highlightSettings);
+            }
         }
     });
     
@@ -485,18 +499,19 @@
         // Create the highlight box
         const $highlightBox = $('<div class="pqs-highlight-box"></div>');
         
-        // Style the highlight box
+        // Style the highlight box with user settings
         $highlightBox.css({
             position: 'absolute',
             top: offset.top - 10,
             left: offset.left - 10,
             width: width + 20,
             height: height + 20,
-            border: '10px solid red',
+            border: `10px solid ${highlightSettings.highlight_color}`,
             borderRadius: '4px',
             pointerEvents: 'none',
             zIndex: 9999,
             boxSizing: 'border-box',
+            opacity: highlightSettings.highlight_opacity,
             animation: 'pqsPulse 2s ease-in-out infinite'
         });
         
@@ -505,16 +520,29 @@
         
         // Add pulse animation styles if not already present
         if (!$('#pqs-highlight-styles').length) {
+            // Convert hex color to RGB for box-shadow
+            const hexToRgb = (hex) => {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? {
+                    r: parseInt(result[1], 16),
+                    g: parseInt(result[2], 16),
+                    b: parseInt(result[3], 16)
+                } : {r: 255, g: 0, b: 0}; // fallback to red
+            };
+
+            const rgb = hexToRgb(highlightSettings.highlight_color);
+            const baseOpacity = highlightSettings.highlight_opacity;
+
             const styles = `
                 <style id="pqs-highlight-styles">
                     @keyframes pqsPulse {
                         0%, 100% {
-                            opacity: 1;
-                            box-shadow: 0 0 20px rgba(255, 0, 0, 0.5);
+                            opacity: ${baseOpacity};
+                            box-shadow: 0 0 20px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${baseOpacity * 0.5});
                         }
                         50% {
-                            opacity: 0.8;
-                            box-shadow: 0 0 40px rgba(255, 0, 0, 0.8);
+                            opacity: ${baseOpacity * 0.8};
+                            box-shadow: 0 0 40px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${baseOpacity * 0.8});
                         }
                     }
                     .pqs-highlight-box {
@@ -559,12 +587,12 @@
                 // Create the highlight box after scrolling is complete
                 createHighlightBox($selectedElement);
                 
-                // Optionally remove the highlight after a few seconds
+                // Remove the highlight after user-configured duration
                 setTimeout(function() {
-                    $('.pqs-highlight-box').fadeOut(1000, function() {
+                    $('.pqs-highlight-box').fadeOut(highlightSettings.fade_duration, function() {
                         $(this).remove();
                     });
-                }, 5000); // Remove after 5 seconds
+                }, highlightSettings.highlight_duration);
             });
         }
     }

@@ -23,14 +23,15 @@ A powerful yet lightweight WordPress plugin that adds intelligent search capabil
 - **Result Limiting**: Automatically limits results for broad searches to show most relevant matches
 
 ### User Experience
-- **Visual Feedback**: Selected plugins are highlighted with animated red border after filtering
+- **Customizable Visual Feedback**: Selected plugins are highlighted with configurable animated border
 - **Smooth Scrolling**: Auto-scroll to selected plugin with smooth animation
 - **Responsive Design**: Modal adapts to different screen sizes
-- **Auto-hide Highlights**: Highlight boxes fade out automatically after 5 seconds
+- **Configurable Highlights**: Customizable duration, fade time, color, and opacity
 - **Loading States**: Visual feedback during search operations
 - **Version Display**: Shows plugin version for the top search result
 - **Enhanced Styling**: Improved visual hierarchy with better color schemes
 - **Spell Check Disabled**: Search input optimized for plugin names
+- **Settings Page**: Easy-to-use admin interface for customization
 
 ### Security & Performance
 - **Capability Checks**: Only loads for users with plugin management permissions
@@ -44,7 +45,8 @@ A powerful yet lightweight WordPress plugin that adds intelligent search capabil
 
 1. Upload the plugin folder to `/wp-content/plugins/`
 2. Activate the plugin through the 'Plugins' menu in WordPress
-3. Navigate to the Plugins page and press `Cmd+Shift+P` to start searching
+3. (Optional) Go to **Settings → Plugin Quick Search** to customize highlight behavior
+4. Navigate to the Plugins page and press `Cmd+Shift+P` to start searching
 
 ## Usage
 
@@ -69,6 +71,21 @@ A powerful yet lightweight WordPress plugin that adds intelligent search capabil
 - `Enter`: Select current result and filter plugins
 - `Esc`: Close modal and show all plugins
 - Click outside modal: Close modal
+
+## Settings
+
+The plugin includes a settings page at **Settings → Plugin Quick Search** where you can customize:
+
+- **Highlight Duration**: How long the highlight box stays visible (1-30 seconds)
+- **Fade Duration**: How long the fade-out animation takes (0.5-5 seconds)
+- **Highlight Color**: Color of the highlight box border (any hex color)
+- **Highlight Opacity**: Transparency of the highlight box (0.1-1.0)
+
+### Default Settings
+- Highlight Duration: 8 seconds (increased from 5 seconds)
+- Fade Duration: 2 seconds (increased from 1 second)
+- Highlight Color: Red (#ff0000)
+- Highlight Opacity: 1.0 (fully opaque)
 
 ## Technical Details
 
@@ -131,7 +148,7 @@ No warranty; use at your own risk.
 
 ## Version
 
-1.0.5
+1.0.6
 
 ## Author
 

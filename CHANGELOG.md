@@ -5,6 +5,51 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2024-08-17
+
+### Added
+- **Customizable Highlight Settings**: Full user control over highlight box behavior
+  - **Settings Page**: New admin page at Settings → Plugin Quick Search
+  - **Highlight Duration**: Configurable duration (1-30 seconds, default: 8 seconds)
+  - **Fade Duration**: Configurable fade-out time (0.5-5 seconds, default: 2 seconds)
+  - **Highlight Color**: Custom color picker for border color (default: red)
+  - **Highlight Opacity**: Adjustable transparency (0.1-1.0, default: 1.0)
+
+- **Enhanced User Experience**: Addressed user feedback about highlight timing
+  - **Longer Default Duration**: Increased from 5 to 8 seconds for better visibility
+  - **Smoother Fade**: Increased fade duration from 1 to 2 seconds
+  - **Dynamic Color Support**: Highlight box and pulse animation adapt to chosen color
+  - **Real-time Settings**: Changes apply immediately without page refresh
+
+- **Professional Settings Interface**: User-friendly configuration page
+  - **Clear Instructions**: Step-by-step usage guide
+  - **Helpful Tips**: Best practices for each setting
+  - **Input Validation**: Proper bounds checking and sanitization
+  - **Visual Feedback**: Color picker and range inputs for easy adjustment
+
+### Enhanced
+- **Settings Architecture**: Robust settings management system
+  - **Default Fallbacks**: Graceful handling of missing or invalid settings
+  - **Secure Storage**: WordPress options API with proper sanitization
+  - **PHP-to-JavaScript Bridge**: Seamless settings transfer via wp_localize_script
+  - **Development Support**: Settings logged to console in debug mode
+
+- **Dynamic Styling**: Highlight box adapts to user preferences
+  - **Color Conversion**: Automatic hex-to-RGB conversion for box-shadow effects
+  - **Opacity Integration**: Consistent opacity across border and shadow
+  - **Animation Sync**: Pulse animation matches selected color and opacity
+
+- **Code Quality**: Improved maintainability and extensibility
+  - **Centralized Settings**: Single source of truth for all highlight preferences
+  - **Modular Design**: Easy to add new customization options
+  - **Better Documentation**: Comprehensive inline comments and help text
+
+### Fixed
+- **Highlight Visibility**: Resolved issue with highlight box disappearing too quickly
+- **User Control**: Users can now fine-tune highlight behavior to their preferences
+- **Color Consistency**: Pulse animation now matches selected highlight color
+- **Settings Persistence**: User preferences saved and restored correctly
+
 ## [1.0.5] - 2024-08-17
 
 ### Added
