@@ -24,10 +24,22 @@
             const pluginName = $pluginTitle.text().trim();
             const pluginDesc = $row.find('.plugin-description').text().trim();
             
+            // Extract version number from the plugin row
+            let version = '';
+            const $versionSpan = $row.find('.plugin-version-author-uri');
+            if ($versionSpan.length) {
+                const versionText = $versionSpan.text();
+                const versionMatch = versionText.match(/Version\s+([\d.]+)/i);
+                if (versionMatch) {
+                    version = versionMatch[1];
+                }
+            }
+            
             if (pluginName) {
                 allPlugins.push({
                     name: pluginName,
                     description: pluginDesc,
+                    version: version,
                     element: $row[0]
                 });
             }
@@ -271,10 +283,14 @@
                 addedSeparator = true;
             }
             
+            // Show version for the first result
+            const showVersion = index === 0 && plugin.version;
+            
             const $item = $(`
                 <div class="pqs-result-item ${index === selectedIndex ? 'selected' : ''} ${isExactMatch ? 'exact-match' : ''} ${isStrongMatch && !isExactMatch ? 'strong-match' : ''}" data-index="${index}">
                     <div class="pqs-plugin-name">
                         ${isExactMatch ? '⭐ ' : ''}${escapeHtml(plugin.name)}
+                        ${showVersion ? `<span class="pqs-version">v${escapeHtml(plugin.version)}</span>` : ''}
                     </div>
                     ${plugin.description ? `<div class="pqs-plugin-desc">${escapeHtml(plugin.description)}</div>` : ''}
                 </div>
@@ -287,15 +303,19 @@
             const styles = `
                 <style id="pqs-match-styles">
                     .pqs-result-item.exact-match {
-                        background: #e7f3ff;
+                        background: #f0f6fc;
                         border-left: 4px solid #2271b1;
+                    }
+                    .pqs-result-item.exact-match:hover {
+                        background: #e5f1fb;
                     }
                     .pqs-result-item.exact-match.selected {
                         background: #2271b1;
                         color: #fff;
+                        border-left-color: #1a5490;
                     }
                     .pqs-result-item.strong-match {
-                        background: #f0f8ff;
+                        background: #f8f9fa;
                     }
                     .pqs-separator {
                         padding: 5px 15px;
@@ -305,6 +325,27 @@
                         border-top: 1px solid #e0e0e0;
                         margin-top: 5px;
                         background: #fafafa;
+                    }
+                    .pqs-version {
+                        display: inline-block;
+                        margin-left: 8px;
+                        padding: 2px 6px;
+                        background: rgba(0, 0, 0, 0.07);
+                        border-radius: 3px;
+                        font-size: 12px;
+                        font-weight: normal;
+                        color: #555;
+                    }
+                    .pqs-result-item.selected .pqs-version {
+                        background: rgba(255, 255, 255, 0.2);
+                        color: #fff;
+                    }
+                    .pqs-result-item.exact-match .pqs-plugin-name {
+                        color: #0a4b78;
+                        font-weight: 700;
+                    }
+                    .pqs-result-item.exact-match.selected .pqs-plugin-name {
+                        color: #fff;
                     }
                 </style>
             `;
