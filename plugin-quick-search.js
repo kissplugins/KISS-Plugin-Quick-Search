@@ -71,19 +71,7 @@
     // Bind keyboard shortcut
     function bindKeyboardShortcut() {
         $(document).on('keydown', function(e) {
-            // Debug: Log all key combinations for testing
-            if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
-                console.log('Key combination detected:', {
-                    key: e.key,
-                    metaKey: e.metaKey,
-                    ctrlKey: e.ctrlKey,
-                    shiftKey: e.shiftKey,
-                    keyCode: e.keyCode,
-                    which: e.which
-                });
-            }
-
-            // Check for Cmd/Ctrl + Shift + P (multiple detection methods)
+            // Check for Cmd/Ctrl + Shift + P
             if ((e.metaKey || e.ctrlKey) && e.shiftKey &&
                 (e.key === 'P' || e.keyCode === 80 || e.which === 80)) {
                 console.log('Plugin Quick Search shortcut triggered!');
@@ -163,7 +151,62 @@
         removeHighlightBoxes();
     }
     
-    // Filter plugins based on search query
+    // Calculate relevance score for search ranking
+    function calculateRelevanceScore(plugin, query) {
+        const lowerName = plugin.name.toLowerCase();
+        const lowerDesc = plugin.description.toLowerCase();
+        const lowerQuery = query.toLowerCase();
+        
+        let score = 0;
+        
+        // Exact match of full name (highest priority)
+        if (lowerName === lowerQuery) {
+            score += 1000;
+        }
+        
+        // Name starts with query (very high priority)
+        else if (lowerName.startsWith(lowerQuery)) {
+            score += 500;
+        }
+        
+        // Query is the first word in the name
+        else if (lowerName.split(/\s+/)[0] === lowerQuery) {
+            score += 400;
+        }
+        
+        // Name contains query as a whole word
+        else if (new RegExp('\\b' + lowerQuery + '\\b', 'i').test(plugin.name)) {
+            score += 300;
+        }
+        
+        // Name contains query (partial match)
+        else if (lowerName.includes(lowerQuery)) {
+            score += 100;
+            // Bonus for earlier position
+            const position = lowerName.indexOf(lowerQuery);
+            score += Math.max(50 - position, 0);
+        }
+        
+        // Description contains query
+        if (lowerDesc.includes(lowerQuery)) {
+            score += 10;
+        }
+        
+        // Penalize plugins with very long names (likely extensions/add-ons)
+        const wordCount = plugin.name.split(/\s+/).length;
+        if (wordCount > 3) {
+            score -= (wordCount - 3) * 5;
+        }
+        
+        // Boost official/core plugins (usually have simpler names)
+        if (!plugin.name.includes(' for ') && !plugin.name.includes(' - ')) {
+            score += 20;
+        }
+        
+        return score;
+    }
+    
+    // Filter plugins based on search query with smart ranking
     function filterPlugins(query) {
         selectedIndex = 0;
         filteredPlugins = [];
@@ -172,16 +215,36 @@
             filteredPlugins = [...allPlugins];
         } else {
             const lowerQuery = query.toLowerCase();
-            filteredPlugins = allPlugins.filter(plugin => {
+            
+            // First, find all matching plugins
+            const matchingPlugins = allPlugins.filter(plugin => {
                 return plugin.name.toLowerCase().includes(lowerQuery) ||
                        plugin.description.toLowerCase().includes(lowerQuery);
             });
+            
+            // Calculate relevance scores
+            const scoredPlugins = matchingPlugins.map(plugin => ({
+                ...plugin,
+                score: calculateRelevanceScore(plugin, query)
+            }));
+            
+            // Sort by relevance score (highest first)
+            scoredPlugins.sort((a, b) => b.score - a.score);
+            
+            // Remove score property and assign to filteredPlugins
+            filteredPlugins = scoredPlugins.map(({ score, ...plugin }) => plugin);
+            
+            // Limit results for very common terms
+            if (filteredPlugins.length > 20 && query.length < 5) {
+                // For short queries with many results, show only top matches
+                filteredPlugins = filteredPlugins.slice(0, 15);
+            }
         }
         
         renderResults();
     }
     
-    // Render the search results
+    // Render the search results with visual hierarchy
     function renderResults() {
         const $results = $('#pqs-results');
         $results.empty();
@@ -191,15 +254,62 @@
             return;
         }
         
+        // Add a separator after the first result if it's a strong match
+        let addedSeparator = false;
+        
         filteredPlugins.forEach((plugin, index) => {
+            // Check if this is likely a primary/exact match
+            const query = $('#pqs-search-input').val().toLowerCase();
+            const isExactMatch = plugin.name.toLowerCase() === query;
+            const isStrongMatch = plugin.name.toLowerCase().startsWith(query);
+            
+            // Add separator after first result if it's a strong match and there are more results
+            if (index === 1 && !addedSeparator && 
+                (filteredPlugins[0].name.toLowerCase() === query || 
+                 filteredPlugins[0].name.toLowerCase().startsWith(query))) {
+                $results.append('<div class="pqs-separator">Other matches</div>');
+                addedSeparator = true;
+            }
+            
             const $item = $(`
-                <div class="pqs-result-item ${index === selectedIndex ? 'selected' : ''}" data-index="${index}">
-                    <div class="pqs-plugin-name">${escapeHtml(plugin.name)}</div>
+                <div class="pqs-result-item ${index === selectedIndex ? 'selected' : ''} ${isExactMatch ? 'exact-match' : ''} ${isStrongMatch && !isExactMatch ? 'strong-match' : ''}" data-index="${index}">
+                    <div class="pqs-plugin-name">
+                        ${isExactMatch ? '⭐ ' : ''}${escapeHtml(plugin.name)}
+                    </div>
                     ${plugin.description ? `<div class="pqs-plugin-desc">${escapeHtml(plugin.description)}</div>` : ''}
                 </div>
             `);
             $results.append($item);
         });
+        
+        // Add custom styles for match types if not present
+        if (!$('#pqs-match-styles').length) {
+            const styles = `
+                <style id="pqs-match-styles">
+                    .pqs-result-item.exact-match {
+                        background: #e7f3ff;
+                        border-left: 4px solid #2271b1;
+                    }
+                    .pqs-result-item.exact-match.selected {
+                        background: #2271b1;
+                        color: #fff;
+                    }
+                    .pqs-result-item.strong-match {
+                        background: #f0f8ff;
+                    }
+                    .pqs-separator {
+                        padding: 5px 15px;
+                        font-size: 11px;
+                        text-transform: uppercase;
+                        color: #666;
+                        border-top: 1px solid #e0e0e0;
+                        margin-top: 5px;
+                        background: #fafafa;
+                    }
+                </style>
+            `;
+            $('head').append(styles);
+        }
     }
     
     // Navigate through results
