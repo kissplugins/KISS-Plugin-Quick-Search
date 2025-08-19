@@ -5,6 +5,14 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.9] - 2025-08-19
+
+### Improved
+- **Performance Optimization (Phase 2)**: Advanced algorithmic improvements for even better performance
+  - Implemented incremental filtering - when query gets longer, filters from previous results instead of starting fresh
+  - Added tiered search strategy: exact matches → prefix matches → contains matches → fuzzy matching (only if needed)
+  - Expected performance improvement: ~50-100ms lag reduced to ~20-50ms lag
+
 ## [1.0.8] - 2025-08-19
 
 ### Improved

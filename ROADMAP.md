@@ -45,8 +45,8 @@ const scoredPlugins = matchingPlugins.map(plugin => ({
 3. **Early result limiting** - stop processing after finding 20 good matches - **Status: Done**
 
 ### Phase 2: Algorithmic Improvements
-1. **Incremental filtering** - when query gets longer, filter from previous results
-2. **Tiered search strategy**:
+1. **Incremental filtering** - when query gets longer, filter from previous results - **Status: Done**
+2. **Tiered search strategy**: - **Status: Done**
    - First pass: exact matches only
    - Second pass: prefix matches
    - Third pass: contains matches

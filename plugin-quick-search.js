@@ -7,6 +7,9 @@
     let allPlugins = [];
     let searchCache = new Map(); // Cache search results
     let debounceTimer = null;
+    // Phase 2: Incremental filtering variables
+    let lastQuery = '';
+    let lastResults = [];
     const DEBOUNCE_DELAY = 250; // milliseconds (Phase 1 optimization)
     const MAX_SCORING_ITEMS = 20; // Phase 1: Stop scoring after this many matches (reduced from 100)
     const MAX_DISPLAY_ITEMS = 20; // Maximum items to display
@@ -199,10 +202,14 @@
         modalOpen = true;
         $('#pqs-overlay').addClass('active');
         $('#pqs-search-input').val('').focus();
-        
+
         // Clear cache when opening modal (optional - remove if you want persistent cache)
         searchCache.clear();
-        
+
+        // Phase 2: Reset incremental search state
+        lastQuery = '';
+        lastResults = [];
+
         // Show all plugins initially
         filterPlugins('');
     }
@@ -211,16 +218,20 @@
     function closeModal() {
         modalOpen = false;
         $('#pqs-overlay').removeClass('active');
-        
+
         // Cancel any pending search
         if (debounceTimer) {
             clearTimeout(debounceTimer);
             debounceTimer = null;
         }
-        
+
+        // Phase 2: Reset incremental search state
+        lastQuery = '';
+        lastResults = [];
+
         // Reset the plugin list to show all
         $('#the-list tr').show();
-        
+
         // Remove any existing highlight boxes
         removeHighlightBoxes();
     }
@@ -308,13 +319,15 @@
         return score;
     }
     
-    // Filter plugins with caching and optimizations (Phase 1: Lazy fuzzy matching)
+    // Filter plugins with Phase 2 optimizations: Incremental filtering + Tiered search
     function filterPlugins(query) {
         selectedIndex = 0;
 
         // Early exit for empty query
         if (query === '') {
             filteredPlugins = allPlugins.slice(0, MAX_DISPLAY_ITEMS);
+            lastQuery = '';
+            lastResults = [];
             renderResults();
             return;
         }
@@ -324,41 +337,70 @@
         // Check cache first
         if (searchCache.has(lowerQuery)) {
             filteredPlugins = searchCache.get(lowerQuery);
+            lastQuery = lowerQuery;
+            lastResults = [...filteredPlugins];
             renderResults();
             return;
         }
 
-        // Phase 1: Tiered search - exact and partial matches first
+        // Phase 2: Incremental filtering - if query is extension of previous query
+        let searchPool = allPlugins;
+        const isIncrementalSearch = lastQuery && lowerQuery.startsWith(lastQuery) && lastResults.length > 0;
+
+        if (isIncrementalSearch) {
+            // Search only within previous results for better performance
+            searchPool = lastResults;
+        }
+
+        // Phase 2: Tiered search strategy
         const exactMatches = [];
-        const partialMatches = [];
-        let processedCount = 0;
+        const prefixMatches = [];
+        const containsMatches = [];
+        const fuzzyMatches = [];
 
-        // First pass: Only exact and partial string matches (no fuzzy matching yet)
-        for (let i = 0; i < allPlugins.length && processedCount < MAX_SCORING_ITEMS; i++) {
-            const plugin = allPlugins[i];
-            const nameIncludes = plugin.nameLower.includes(lowerQuery);
-            const descIncludes = plugin.descriptionLower.includes(lowerQuery);
-
-            if (nameIncludes || descIncludes) {
-                if (plugin.nameLower === lowerQuery || plugin.nameLower.startsWith(lowerQuery)) {
-                    exactMatches.push(plugin);
-                } else {
-                    partialMatches.push(plugin);
-                }
-                processedCount++;
+        // First pass: Exact matches
+        for (let i = 0; i < searchPool.length; i++) {
+            const plugin = searchPool[i];
+            if (plugin.nameLower === lowerQuery) {
+                exactMatches.push(plugin);
             }
         }
 
-        let matchingPlugins = [...exactMatches, ...partialMatches];
+        // Second pass: Prefix matches (if we need more results)
+        if (exactMatches.length < MAX_DISPLAY_ITEMS) {
+            for (let i = 0; i < searchPool.length; i++) {
+                const plugin = searchPool[i];
+                if (plugin.nameLower.startsWith(lowerQuery) && !exactMatches.includes(plugin)) {
+                    prefixMatches.push(plugin);
+                    if (exactMatches.length + prefixMatches.length >= MAX_DISPLAY_ITEMS) break;
+                }
+            }
+        }
 
-        // Phase 1: Lazy fuzzy matching - only if we have fewer than 5 results
+        // Third pass: Contains matches (if we need more results)
+        if (exactMatches.length + prefixMatches.length < MAX_DISPLAY_ITEMS) {
+            for (let i = 0; i < searchPool.length; i++) {
+                const plugin = searchPool[i];
+                const nameIncludes = plugin.nameLower.includes(lowerQuery);
+                const descIncludes = plugin.descriptionLower.includes(lowerQuery);
+
+                if ((nameIncludes || descIncludes) &&
+                    !exactMatches.includes(plugin) &&
+                    !prefixMatches.includes(plugin)) {
+                    containsMatches.push(plugin);
+                    if (exactMatches.length + prefixMatches.length + containsMatches.length >= MAX_DISPLAY_ITEMS) break;
+                }
+            }
+        }
+
+        let matchingPlugins = [...exactMatches, ...prefixMatches, ...containsMatches];
+
+        // Final pass: Fuzzy matching (only if we have fewer than 5 results)
         if (matchingPlugins.length < 5) {
-            const fuzzyMatches = [];
+            for (let i = 0; i < searchPool.length && fuzzyMatches.length < (MAX_DISPLAY_ITEMS - matchingPlugins.length); i++) {
+                const plugin = searchPool[i];
 
-            for (let i = 0; i < allPlugins.length && fuzzyMatches.length < (20 - matchingPlugins.length); i++) {
-                const plugin = allPlugins[i];
-
-                // Skip if already in exact/partial matches
+                // Skip if already in other matches
                 if (matchingPlugins.includes(plugin)) continue;
 
                 const distance = levenshteinDistance(plugin.nameLower, lowerQuery);
@@ -374,6 +416,8 @@
         // If no matches found, update and exit early
         if (matchingPlugins.length === 0) {
             filteredPlugins = [];
+            lastQuery = lowerQuery;
+            lastResults = [];
             searchCache.set(lowerQuery, filteredPlugins);
             renderResults();
             return;
@@ -393,6 +437,10 @@
 
         // Remove score property and assign to filteredPlugins
         filteredPlugins = limitedResults.map(({ score, ...plugin }) => plugin);
+
+        // Update incremental search state
+        lastQuery = lowerQuery;
+        lastResults = [...filteredPlugins];
 
         // Cache the results
         searchCache.set(lowerQuery, filteredPlugins);
