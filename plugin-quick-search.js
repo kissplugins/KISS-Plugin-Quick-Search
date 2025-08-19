@@ -55,9 +55,9 @@
             const $pluginTitle = $row.find('.plugin-title strong');
             const pluginName = $pluginTitle.text().trim();
             const pluginDesc = $row.find('.plugin-description').text().trim();
-            
+
             if (!pluginName) return; // Early exit if no name
-            
+
             // Extract version number from the plugin row
             let version = '';
             const $versionSpan = $row.find('.plugin-version-author-uri');
@@ -68,7 +68,27 @@
                     version = versionMatch[1];
                 }
             }
-            
+
+            // Determine activation status efficiently (upfront collection)
+            let isActive = false;
+
+            // WordPress uses these methods to indicate active plugins:
+            // 1. CSS class 'active' on the tr element
+            // 2. Presence of 'Deactivate' link vs 'Activate' link
+            if ($row.hasClass('active')) {
+                isActive = true;
+            } else {
+                // Fallback: check for Deactivate vs Activate link
+                const $actionLinks = $row.find('.row-actions a');
+                $actionLinks.each(function() {
+                    const linkText = $(this).text().toLowerCase();
+                    if (linkText.includes('deactivate')) {
+                        isActive = true;
+                        return false; // break out of each loop
+                    }
+                });
+            }
+
             // Pre-cache lowercase strings for faster searching
             allPlugins.push({
                 name: pluginName,
@@ -76,6 +96,7 @@
                 description: pluginDesc,
                 descriptionLower: pluginDesc.toLowerCase(), // Pre-cached
                 version: version,
+                isActive: isActive, // Activation status
                 element: $row[0],
                 // Pre-calculate some properties for scoring
                 wordCount: pluginName.split(/\s+/).length,
@@ -478,17 +499,23 @@
             
             // Show version for the first result
             const showVersion = index === 0 && plugin.version;
-            
+
             const classes = ['pqs-result-item'];
             if (index === selectedIndex) classes.push('selected');
             if (isExactMatch) classes.push('exact-match');
             else if (isStrongMatch) classes.push('strong-match');
-            
+            if (plugin.isActive) classes.push('active-plugin');
+
+            // Determine status display
+            const statusText = plugin.isActive ? 'Active' : 'Inactive';
+            const statusClass = plugin.isActive ? 'pqs-status-active' : 'pqs-status-inactive';
+
             html += `
                 <div class="${classes.join(' ')}" data-index="${index}">
                     <div class="pqs-plugin-name">
                         ${isExactMatch ? '⭐ ' : ''}${escapeHtml(plugin.name)}
                         ${showVersion ? `<span class="pqs-version">v${escapeHtml(plugin.version)}</span>` : ''}
+                        <span class="pqs-status ${statusClass}">${statusText}</span>
                     </div>
                     ${plugin.description ? `<div class="pqs-plugin-desc">${escapeHtml(plugin.description)}</div>` : ''}
                 </div>
@@ -548,6 +575,31 @@
                     .pqs-result-item.selected .pqs-version {
                         background: rgba(255, 255, 255, 0.2);
                         color: #fff;
+                    }
+                    .pqs-status {
+                        display: inline-block;
+                        margin-left: 8px;
+                        padding: 2px 8px;
+                        border-radius: 12px;
+                        font-size: 11px;
+                        font-weight: 600;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                    }
+                    .pqs-status-active {
+                        background: #d4edda;
+                        color: #155724;
+                        border: 1px solid #c3e6cb;
+                    }
+                    .pqs-status-inactive {
+                        background: #f8d7da;
+                        color: #721c24;
+                        border: 1px solid #f5c6cb;
+                    }
+                    .pqs-result-item.selected .pqs-status {
+                        background: rgba(255, 255, 255, 0.9);
+                        color: #333;
+                        border-color: rgba(255, 255, 255, 0.5);
                     }
                     .pqs-result-item.exact-match .pqs-plugin-name {
                         color: #0a4b78;

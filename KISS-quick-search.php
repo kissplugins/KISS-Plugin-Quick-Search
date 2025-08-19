@@ -3,7 +3,7 @@
  * Plugin Name: KISS Plugin Quick Search
  * Plugin URI: https://kissplugins.com/
  * Description: Adds keyboard shortcut (Cmd+Shift+P or Ctrl+Shift+P) to quickly search and filter plugins on the Plugins page
- * Version: 1.0.9
+ * Version: 1.0.10
  * Author: KISS Plugins
  * License: GPL v2 or later
  */
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
 class PluginQuickSearch {
 
     // Plugin version for cache busting
-    const VERSION = '1.0.9';
+    const VERSION = '1.0.10';
 
     // Default settings
     private $default_settings = array(

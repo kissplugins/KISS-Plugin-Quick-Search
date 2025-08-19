@@ -5,6 +5,14 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.10] - 2025-08-19
+
+### Added
+- **Plugin Activation Status**: Search results now display whether each plugin is "Active" or "Inactive"
+  - Efficient upfront status collection during initialization (no performance impact)
+  - Color-coded status badges: green for active, red for inactive
+  - Status indicators adapt to selected/highlighted states
+
 ## [1.0.9] - 2025-08-19
 
 ### Improved
