@@ -14,8 +14,11 @@ A powerful yet lightweight WordPress plugin that adds intelligent search capabil
 - **Smart Ranking Algorithm**: Results are intelligently ranked by relevance
   - Exact matches get highest priority
   - Name prefix matches get very high priority
-  - Whole word matches in names get high priority
+  - Whole word matches get high priority
   - Partial matches are ranked by position and context
+- **Word-Based Matching**: Revolutionary search improvement for non-sequential word matching
+  - "WP SMTP" now matches "WP Mail SMTP Pro" and similar patterns
+  - Intelligent word scoring system with exact, prefix, and partial word matching
 - **Fuzzy Matching**: Levenshtein distance allows small typos (e.g., `wocomm` → `woocommerce`)
 - **Visual Match Indicators**:
   - ⭐ Star icon for exact matches
@@ -23,24 +26,28 @@ A powerful yet lightweight WordPress plugin that adds intelligent search capabil
   - Visual separators between match types
 - **Result Limiting**: Automatically limits results for broad searches to show most relevant matches
 
-### User Experience
-- **Customizable Visual Feedback**: Selected plugins are highlighted with configurable animated border
-- **Smooth Scrolling**: Auto-scroll to selected plugin with smooth animation
-- **Responsive Design**: Modal adapts to different screen sizes
-- **Configurable Highlights**: Customizable duration, fade time, color, and opacity
-- **Loading States**: Visual feedback during search operations
-- **Version Display**: Shows plugin version for the top search result
-- **Enhanced Styling**: Improved visual hierarchy with better color schemes
-- **Spell Check Disabled**: Search input optimized for plugin names
-- **Settings Page**: Easy-to-use admin interface for customization
+### Plugin Management Features
+- **Activation Status Display**: See at a glance which plugins are "Active" or "Inactive"
+  - Color-coded status badges: green for active, red for inactive
+  - Status indicators adapt to selected/highlighted states
+- **Quick Settings Navigation**: Press `Shift+Enter` on any selected plugin to go directly to its settings
+  - Supports plugins with "Settings", "Configure", or "Configuration" links
+  - Shows helpful notifications for plugins without settings pages
+  - Works seamlessly with the search and navigation system
 
-### Security & Performance
-- **Capability Checks**: Only loads for users with plugin management permissions
-- **XSS Protection**: All user input is properly sanitized and escaped
-- **Input Validation**: Search queries are sanitized and length-limited
-- **Efficient Loading**: Only loads on the plugins.php admin page
-- **Smart Cache Busting**: Automatic cache invalidation for development and production
-- **Debug Mode Support**: Enhanced debugging features when WP_DEBUG is enabled
+### Performance & Security
+- **High Performance**: Optimized for large plugin lists (500+ plugins)
+  - Phase 1 & 2 optimizations: ~200-500ms lag reduced to ~20-50ms lag
+  - Incremental filtering and tiered search strategy
+  - Lazy fuzzy matching and early result limiting
+  - Search result caching for instant repeated searches
+- **Security & Performance**
+  - **Capability Checks**: Only loads for users with plugin management permissions
+  - **XSS Protection**: All user input is properly sanitized and escaped
+  - **Input Validation**: Search queries are sanitized and length-limited
+  - **Efficient Loading**: Only loads on the plugins.php admin page
+  - **Smart Cache Busting**: Automatic cache invalidation for development and production
+  - **Debug Mode Support**: Enhanced debugging features when WP_DEBUG is enabled
 
 ## Installation
 
@@ -63,6 +70,7 @@ A powerful yet lightweight WordPress plugin that adds intelligent search capabil
 ### Search Tips
 - **Exact matches** are marked with ⭐ and appear first
 - **Prefix matches** (plugins starting with your search) appear near the top
+- **Word-based matching** finds plugins even when words aren't sequential (e.g., "WP SMTP" finds "WP Mail SMTP Pro")
 - Use **short, specific terms** for best results
 - The search covers both plugin names and descriptions
 - Results are automatically limited for very broad searches
@@ -88,78 +96,70 @@ The plugin includes a settings page at **Settings → Plugin Quick Search** wher
 
 - **Highlight Duration**: How long the highlight box stays visible (1-30 seconds)
 - **Fade Duration**: How long the fade-out animation takes (0.5-5 seconds)
-- **Highlight Color**: Color of the highlight box border (any hex color)
-- **Highlight Opacity**: Transparency of the highlight box (0.1-1.0)
-
-### Default Settings
-- Highlight Duration: 8 seconds (increased from 5 seconds)
-- Fade Duration: 2 seconds (increased from 1 second)
-- Highlight Color: Red (#ff0000)
-- Highlight Opacity: 1.0 (fully opaque)
-
-## Technical Details
+- **Highlight Color**: Custom color for the highlight box border
+- **Highlight Opacity**: Transparency level of the highlight box (10-100%)
 
 ### Search Algorithm
+
 The plugin uses a sophisticated relevance scoring system:
 - **Exact matches**: 1000 points (highest priority)
 - **Prefix matches**: 500 points
 - **First word matches**: 400 points
 - **Whole word matches**: 300 points
 - **Partial matches**: 100 points + position bonus
+- **Word-based matches**: 150+ points with intelligent word scoring
 - **Description matches**: 10 points
 - **Penalties**: Applied for overly long plugin names
 - **Bonuses**: Given to simpler, likely core plugins
 
+## Technical Details
+
 ### Performance Optimizations
-- **Search Debouncing**: 150ms delay prevents excessive searches while typing
-- **Search Result Caching**: Previously searched terms are cached for instant results
-- **Pre-cached Lowercase Strings**: Plugin names and descriptions are converted to lowercase once during initialization
-- **Early Exit Optimizations**: Exact matches return immediately without further processing
-- **Limited Scoring**: Only processes first 100 matching plugins for complex searches
-- **Batch DOM Updates**: Results are built in memory and updated in a single operation
-- **Smart Result Limiting**: Maximum 20 items displayed, with intelligent truncation
-- **Efficient DOM manipulation**: Optimized jQuery operations and minimal DOM queries
-- **Responsive highlight box positioning**: Auto-adjusts on scroll/resize events
-- **Smooth animations**: CSS transitions for professional user experience
+- **Phase 1**: Increased debounce delay, lazy fuzzy matching, early result limiting
+- **Phase 2**: Incremental filtering, tiered search strategy
+- **Word-Based Matching**: Pre-calculated word arrays for optimal performance
+- **Caching**: Intelligent search result caching
+- **DOM Optimization**: Batch updates and efficient rendering
 
-## Requirements
-
+### Browser Compatibility
+- Modern browsers with ES6 support
 - WordPress 4.0+
 - jQuery (included with WordPress)
-- Admin access with plugin management capabilities (`activate_plugins` capability)
-- Modern browser with JavaScript enabled
 
-## Browser Support
+### Security Features
+- Capability checks (`activate_plugins`)
+- Input sanitization and validation
+- XSS protection with HTML escaping
+- Nonce verification for AJAX requests
 
-- Chrome 60+
-- Firefox 55+
-- Safari 12+
-- Edge 79+
+## Development
 
-## Troubleshooting
+### Debug Mode
+When `WP_DEBUG` is enabled:
+- Enhanced console logging
+- File modification time used for cache busting
+- Performance timing information
+- Settings debugging output
 
-**Search modal doesn't open:**
-- Ensure you're on the Plugins page (`/wp-admin/plugins.php`)
-- Check that you have plugin management permissions
-- Verify JavaScript is enabled in your browser
+### Customization
+The plugin is designed to be easily customizable:
+- Centralized settings system
+- Modular JavaScript architecture
+- CSS custom properties for theming
+- Extensible scoring algorithm
 
-**Keyboard shortcut conflicts:**
-- The plugin uses `Cmd+Shift+P` / `Ctrl+Shift+P` which may conflict with browser developer tools
-- Close developer tools or use a different browser if needed
+## Changelog
 
-**Highlight box positioning issues:**
-- The highlight box automatically adjusts on scroll/resize
-- If issues persist, try refreshing the page
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
 ## License
 
 GPL v2 or later
-No warranty; use at your own risk.
 
-## Version
+## Support
 
-1.0.7
+For support, feature requests, or bug reports, please visit the plugin's support forum or repository.
 
-## Author
+---
 
-KISS Plugins - https://kissplugins.com/
+**KISS Plugin Quick Search** - Keep It Simple, Search!
