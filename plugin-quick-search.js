@@ -1,12 +1,20 @@
 (function($) {
     'use strict';
-    
+
+    // Cache configuration
+    const CACHE_VERSION = '1.0';
+    let CACHE_DURATION = 60 * 60 * 1000; // 1 hour in milliseconds (will be overridden by settings)
+    const CACHE_KEY = 'pqs_plugin_cache';
+    const CACHE_META_KEY = 'pqs_cache_meta';
+
     let modalOpen = false;
     let selectedIndex = 0;
     let filteredPlugins = [];
     let allPlugins = [];
     let searchCache = new Map(); // Cache search results
     let debounceTimer = null;
+    let cacheStatus = 'loading'; // 'loading', 'fresh', 'stale', 'error'
+
     // Phase 2: Incremental filtering variables
     let lastQuery = '';
     let lastResults = [];
@@ -15,7 +23,8 @@
     const MAX_DISPLAY_ITEMS = 20; // Maximum items to display
 
     // Default settings (will be overridden by PHP settings)
-    let highlightSettings = {
+    let pluginSettings = {
+        keyboard_shortcut: 'cmd_shift_p', // cmd_shift_p or cmd_k
         highlight_duration: 8000,  // 8 seconds
         fade_duration: 2000,       // 2 seconds
         highlight_color: '#ff0000', // Red
@@ -24,17 +33,8 @@
     
     // Initialize on document ready
     $(document).ready(function() {
-        console.log('Plugin Quick Search: Initializing...');
+        console.log('Plugin Quick Search: Initializing with intelligent cache...');
         const startTime = performance.now();
-        
-        collectPluginData();
-        console.log('Plugin Quick Search: Found', allPlugins.length, 'plugins');
-        
-        createModal();
-        bindKeyboardShortcut();
-        
-        const loadTime = performance.now() - startTime;
-        console.log(`Plugin Quick Search: Ready in ${loadTime.toFixed(2)}ms! Press Cmd/Ctrl+Shift+P to search`);
 
         // Load settings from PHP if available
         if (typeof pqs_ajax !== 'undefined') {
@@ -42,14 +42,232 @@
                 console.log('Plugin Quick Search Version:', pqs_ajax.version);
             }
             if (pqs_ajax.settings) {
-                highlightSettings = { ...highlightSettings, ...pqs_ajax.settings };
-                console.log('Plugin Quick Search: Loaded custom settings', highlightSettings);
+                pluginSettings = { ...pluginSettings, ...pqs_ajax.settings };
+                console.log('Plugin Quick Search: Loaded custom settings', pluginSettings);
+
+                // Update cache duration from settings if available
+                if (pluginSettings.cache_duration_ms) {
+                    CACHE_DURATION = pluginSettings.cache_duration_ms;
+                }
             }
         }
+
+        initializeWithCache().then(() => {
+            createModal();
+            bindKeyboardShortcut();
+
+            const loadTime = performance.now() - startTime;
+            const shortcutText = getShortcutDisplayText();
+            console.log(`Plugin Quick Search: Ready in ${loadTime.toFixed(2)}ms! Cache status: ${cacheStatus}`);
+            console.log(`Found ${allPlugins.length} plugins`);
+        });
     });
-    
-    // Collect plugin data from the page with pre-cached lowercase strings
+
+    // Initialize with intelligent caching
+    async function initializeWithCache() {
+        try {
+            const cachedData = getCachedData();
+
+            if (cachedData && isCacheValid(cachedData.meta)) {
+                // Use cached data
+                allPlugins = cachedData.plugins;
+                cacheStatus = 'fresh';
+                console.log('Plugin Quick Search: Using cached data');
+
+                // Fire cache status event
+                document.dispatchEvent(new CustomEvent('pqs-cache-status-changed', {
+                    detail: { status: 'fresh', source: 'cached' }
+                }));
+
+                // Re-associate DOM elements with cached data
+                associateDOMElements();
+
+                // Optionally verify cache integrity in background
+                setTimeout(verifyCacheIntegrity, 100);
+            } else {
+                // Cache miss or expired - scan fresh
+                cacheStatus = 'stale';
+                console.log('Plugin Quick Search: Cache expired, scanning fresh data...');
+
+                // Fire cache status event
+                document.dispatchEvent(new CustomEvent('pqs-cache-status-changed', {
+                    detail: { status: 'stale', source: 'expired' }
+                }));
+
+                await scanAndCachePlugins();
+            }
+        } catch (error) {
+            console.error('Plugin Quick Search: Cache error, falling back to fresh scan:', error);
+            cacheStatus = 'error';
+
+            // Fire cache status event
+            document.dispatchEvent(new CustomEvent('pqs-cache-status-changed', {
+                detail: { status: 'error', source: 'exception', error: error.message }
+            }));
+
+            await scanAndCachePlugins();
+        }
+    }
+
+    // Get cached data from localStorage
+    function getCachedData() {
+        try {
+            const cacheData = localStorage.getItem(CACHE_KEY);
+            const metaData = localStorage.getItem(CACHE_META_KEY);
+
+            if (!cacheData || !metaData) return null;
+
+            return {
+                plugins: JSON.parse(cacheData),
+                meta: JSON.parse(metaData)
+            };
+        } catch (error) {
+            console.warn('Plugin Quick Search: Failed to read cache:', error);
+            return null;
+        }
+    }
+
+    // Check if cache is still valid
+    function isCacheValid(meta) {
+        if (!meta || meta.version !== CACHE_VERSION) {
+            return false;
+        }
+
+        const now = Date.now();
+        const cacheDuration = pluginSettings.cache_duration_ms || CACHE_DURATION;
+        const isExpired = (now - meta.timestamp) > cacheDuration;
+
+        // Also check if plugin count matches (quick integrity check)
+        const currentPluginCount = $('#the-list tr').length;
+        const cachedPluginCount = meta.pluginCount;
+
+        return !isExpired && (currentPluginCount === cachedPluginCount);
+    }
+
+    // Scan plugins and update cache
+    async function scanAndCachePlugins() {
+        const scanStartTime = performance.now();
+
+        // Clear existing data
+        allPlugins = [];
+
+        // Scan all plugins (enhanced version of collectPluginData)
+        $('#the-list tr').each(function() {
+            const $row = $(this);
+            const $pluginTitle = $row.find('.plugin-title strong');
+            const pluginName = $pluginTitle.text().trim();
+            const pluginDesc = $row.find('.plugin-description').text().trim();
+
+            if (!pluginName) return;
+
+            // Extract version
+            let version = '';
+            const $versionSpan = $row.find('.plugin-version-author-uri');
+            if ($versionSpan.length) {
+                const versionText = $versionSpan.text();
+                const versionMatch = versionText.match(/Version\s+([\d.]+)/i);
+                if (versionMatch) {
+                    version = versionMatch[1];
+                }
+            }
+
+            // Determine activation status and settings
+            let isActive = false;
+            let settingsUrl = null;
+
+            const $actionLinks = $row.find('.row-actions a');
+            $actionLinks.each(function() {
+                const $link = $(this);
+                const linkText = $link.text().toLowerCase().trim();
+
+                if (linkText.includes('deactivate')) {
+                    isActive = true;
+                }
+
+                if (linkText === 'settings' || linkText.includes('setting') ||
+                    linkText === 'configure' || linkText.includes('configur')) {
+                    settingsUrl = $link.attr('href');
+                }
+            });
+
+            if ($row.hasClass('active')) {
+                isActive = true;
+            }
+
+            // Create plugin object (without DOM element for caching)
+            const pluginData = {
+                name: pluginName,
+                nameLower: pluginName.toLowerCase(),
+                description: pluginDesc,
+                descriptionLower: pluginDesc.toLowerCase(),
+                version: version,
+                isActive: isActive,
+                settingsUrl: settingsUrl,
+                rowIndex: $row.index(), // Store index to find element later
+                element: $row[0], // Add DOM element for immediate use
+                wordCount: pluginName.split(/\s+/).length,
+                hasForIn: pluginName.includes(' for ') || pluginName.includes(' - ')
+            };
+
+            allPlugins.push(pluginData);
+        });
+
+        // Cache the data
+        try {
+            const meta = {
+                timestamp: Date.now(),
+                version: CACHE_VERSION,
+                pluginCount: allPlugins.length,
+                scanTime: performance.now() - scanStartTime
+            };
+
+            // Create cache-friendly version (without DOM elements)
+            const cacheablePlugins = allPlugins.map(plugin => {
+                const { element, ...cacheablePlugin } = plugin;
+                return cacheablePlugin;
+            });
+
+            localStorage.setItem(CACHE_KEY, JSON.stringify(cacheablePlugins));
+            localStorage.setItem(CACHE_META_KEY, JSON.stringify(meta));
+
+            cacheStatus = 'fresh';
+            console.log(`Plugin Quick Search: Cached ${allPlugins.length} plugins in ${meta.scanTime.toFixed(2)}ms`);
+
+            // Fire cache rebuilt event for other plugins
+            document.dispatchEvent(new CustomEvent('pqs-cache-rebuilt', {
+                detail: {
+                    pluginCount: allPlugins.length,
+                    scanTime: meta.scanTime,
+                    timestamp: meta.timestamp
+                }
+            }));
+        } catch (error) {
+            console.warn('Plugin Quick Search: Failed to cache data:', error);
+            // Continue without caching
+        }
+    }
+
+    // Re-associate DOM elements with cached data
+    function associateDOMElements() {
+        allPlugins.forEach((plugin, index) => {
+            // Find the corresponding DOM element by index
+            const $row = $('#the-list tr').eq(plugin.rowIndex || index);
+            if ($row.length) {
+                plugin.element = $row[0];
+            }
+        });
+    }
+
+    // Collect plugin data from the page with pre-cached lowercase strings (legacy function)
     function collectPluginData() {
+        // If using cached data, we need to re-associate DOM elements
+        if (cacheStatus === 'fresh' && allPlugins.length > 0) {
+            associateDOMElements();
+            return;
+        }
+
+        // If cache is stale/error, data is already fresh from scanAndCachePlugins()
+        // This function is now mainly for backward compatibility
         $('#the-list tr').each(function() {
             const $row = $(this);
             const $pluginTitle = $row.find('.plugin-title strong');
@@ -112,17 +330,76 @@
             });
         });
     }
-    
+
+    // Verify cache integrity in background
+    function verifyCacheIntegrity() {
+        const currentPluginCount = $('#the-list tr').length;
+
+        if (currentPluginCount !== allPlugins.length) {
+            console.log('Plugin Quick Search: Cache integrity check failed, refreshing...');
+            scanAndCachePlugins();
+            return;
+        }
+
+        // Quick spot check - verify first few plugins still match
+        let integrityOk = true;
+        $('#the-list tr').slice(0, 3).each(function(index) {
+            const $row = $(this);
+            const pluginName = $row.find('.plugin-title strong').text().trim();
+
+            if (allPlugins[index] && allPlugins[index].name !== pluginName) {
+                integrityOk = false;
+                return false; // Break jQuery each
+            }
+        });
+
+        if (!integrityOk) {
+            console.log('Plugin Quick Search: Cache integrity spot check failed, refreshing...');
+            scanAndCachePlugins();
+        }
+    }
+
+    // Public method to force cache refresh
+    function rebuildCache() {
+        console.log('Plugin Quick Search: Force rebuilding cache...');
+        localStorage.removeItem(CACHE_KEY);
+        localStorage.removeItem(CACHE_META_KEY);
+        return scanAndCachePlugins();
+    }
+
+    // Get cache status text for UI
+    function getCacheStatusText() {
+        try {
+            const meta = JSON.parse(localStorage.getItem(CACHE_META_KEY) || '{}');
+            const age = meta.timestamp ? Math.round((Date.now() - meta.timestamp) / 1000 / 60) : 0;
+
+            switch (cacheStatus) {
+                case 'fresh':
+                    return `Cache: Fresh (${age}m old)`;
+                case 'stale':
+                    return 'Cache: Refreshed';
+                case 'error':
+                    return 'Cache: Error (using fresh data)';
+                default:
+                    return 'Cache: Loading...';
+            }
+        } catch (error) {
+            return 'Cache: Error';
+        }
+    }
+
     // Create the modal HTML
     function createModal() {
+        const cacheStatusText = getCacheStatusText();
+
         const modalHTML = `
             <div class="pqs-overlay" id="pqs-overlay">
                 <div class="pqs-modal">
                     <div class="pqs-search-wrapper">
-                        <input type="text" 
-                               id="pqs-search-input" 
-                               class="pqs-search-input" 
-                               placeholder="Type to search plugins..." 
+                        <input type="text"
+                               id="pqs-search-input"
+                               class="pqs-search-input"
+                               placeholder="Type to search ${allPlugins.length} plugins..."
                                autocomplete="off"
                                spellcheck="false">
                     </div>
@@ -141,26 +418,66 @@
                             <span class="pqs-kbd">Esc</span> Close
                         </span>
                         <span class="pqs-help-item">
-                            <span class="pqs-kbd">Cmd/Ctrl</span>+<span class="pqs-kbd">Shift</span>+<span class="pqs-kbd">P</span> Toggle
+                            <span class="pqs-kbd">${getShortcutDisplayText()}</span> Toggle
                         </span>
+                        <span class="pqs-help-item">
+                            <span class="pqs-kbd">Ctrl+Shift+R</span> Rebuild Cache
+                        </span>
+                        <span class="pqs-cache-status">${cacheStatusText}</span>
                     </div>
                 </div>
             </div>
         `;
-        
+
         $('body').append(modalHTML);
     }
     
+    // Get shortcut display text for UI
+    function getShortcutDisplayText() {
+        if (pluginSettings.keyboard_shortcut === 'cmd_k') {
+            return 'Cmd/Ctrl+K';
+        }
+        return 'Cmd/Ctrl+Shift+P';
+    }
+
+    // Check if current key combination matches the configured shortcut
+    function isShortcutPressed(e) {
+        if (pluginSettings.keyboard_shortcut === 'cmd_k') {
+            // Cmd/Ctrl + K
+            return (e.metaKey || e.ctrlKey) && !e.shiftKey &&
+                   (e.key === 'k' || e.key === 'K' || e.keyCode === 75 || e.which === 75);
+        } else {
+            // Cmd/Ctrl + Shift + P (default)
+            return (e.metaKey || e.ctrlKey) && e.shiftKey &&
+                   (e.key === 'P' || e.keyCode === 80 || e.which === 80);
+        }
+    }
+
     // Bind keyboard shortcut
     function bindKeyboardShortcut() {
         $(document).on('keydown', function(e) {
-            // Check for Cmd/Ctrl + Shift + P
-            if ((e.metaKey || e.ctrlKey) && e.shiftKey &&
-                (e.key === 'P' || e.keyCode === 80 || e.which === 80)) {
+            // Check for configured keyboard shortcut
+            if (isShortcutPressed(e)) {
                 e.preventDefault();
                 toggleModal();
             }
-            
+
+            // Add cache rebuild shortcut (Ctrl+Shift+R)
+            if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'R') {
+                e.preventDefault();
+                rebuildCache().then(() => {
+                    console.log('Plugin Quick Search: Cache rebuilt successfully');
+                    // Show notification if modal is open
+                    if (modalOpen) {
+                        showCacheNotification('Cache rebuilt successfully!', 'success');
+                        // Update cache status in modal
+                        $('.pqs-cache-status').text(getCacheStatusText());
+                        // Update placeholder with new count
+                        $('#pqs-search-input').attr('placeholder', `Type to search ${allPlugins.length} plugins...`);
+                    }
+                });
+            }
+
             // Handle Escape key
             if (e.key === 'Escape' && modalOpen) {
                 closeModal();
@@ -741,6 +1058,32 @@
         }, 3000);
     }
 
+    // Show cache-related notifications
+    function showCacheNotification(message, type = 'info') {
+        $('.pqs-cache-notification').remove();
+
+        const notification = $(`
+            <div class="pqs-cache-notification pqs-notification-${type}">
+                ${escapeHtml(message)}
+            </div>
+        `);
+
+        $('#pqs-overlay .pqs-modal').append(notification);
+
+        setTimeout(() => {
+            notification.fadeOut(300, () => notification.remove());
+        }, 3000);
+    }
+
+    // Expose rebuild function globally for manual use
+    window.pqsRebuildCache = rebuildCache;
+    window.pqsCacheStatus = () => cacheStatus;
+    window.pqsClearCache = () => {
+        localStorage.removeItem(CACHE_KEY);
+        localStorage.removeItem(CACHE_META_KEY);
+        console.log('Plugin Quick Search: Cache cleared');
+    };
+
     // Create a red highlight box around an element
     function createHighlightBox($element) {
         // Remove any existing highlight boxes first
@@ -761,12 +1104,12 @@
             left: offset.left - 10,
             width: width + 20,
             height: height + 20,
-            border: `10px solid ${highlightSettings.highlight_color}`,
+            border: `10px solid ${pluginSettings.highlight_color}`,
             borderRadius: '4px',
             pointerEvents: 'none',
             zIndex: 9999,
             boxSizing: 'border-box',
-            opacity: highlightSettings.highlight_opacity,
+            opacity: pluginSettings.highlight_opacity,
             animation: 'pqsPulse 2s ease-in-out infinite'
         });
         
@@ -844,10 +1187,10 @@
                 
                 // Remove the highlight after user-configured duration
                 setTimeout(function() {
-                    $('.pqs-highlight-box').fadeOut(highlightSettings.fade_duration, function() {
+                    $('.pqs-highlight-box').fadeOut(pluginSettings.fade_duration, function() {
                         $(this).remove();
                     });
-                }, highlightSettings.highlight_duration);
+                }, pluginSettings.highlight_duration);
             });
         }
     }

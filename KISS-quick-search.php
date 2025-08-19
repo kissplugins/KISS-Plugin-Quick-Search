@@ -3,7 +3,7 @@
  * Plugin Name: KISS Plugin Quick Search
  * Plugin URI: https://kissplugins.com/
  * Description: Adds keyboard shortcut (Cmd+Shift+P or Ctrl+Shift+P) to quickly search and filter plugins on the Plugins page
- * Version: 1.0.12
+ * Version: 1.1.0
  * Author: KISS Plugins
  * License: GPL v2 or later
  */
@@ -16,14 +16,17 @@ if (!defined('ABSPATH')) {
 class PluginQuickSearch {
 
     // Plugin version for cache busting
-    const VERSION = '1.0.12';
+    const VERSION = '1.1.0';
 
     // Default settings
     private $default_settings = array(
+        'keyboard_shortcut' => 'cmd_shift_p',  // cmd_shift_p or cmd_k
         'highlight_duration' => 8000,  // 8 seconds (increased from 5)
         'fade_duration' => 2000,       // 2 seconds (increased from 1)
         'highlight_color' => '#ff0000', // Red color
-        'highlight_opacity' => 1.0     // Full opacity
+        'highlight_opacity' => 1.0,    // Full opacity
+        'cache_duration' => 60,        // 1 hour in minutes
+        'auto_refresh_cache' => true   // Auto-refresh on plugin activate/deactivate
     );
 
     public function __construct() {
@@ -63,6 +66,9 @@ class PluginQuickSearch {
 
         // Get user settings
         $settings = $this->get_settings();
+
+        // Convert cache duration from minutes to milliseconds for JavaScript
+        $settings['cache_duration_ms'] = $settings['cache_duration'] * 60 * 1000;
 
         // Add nonce for security and pass settings to JavaScript
         wp_localize_script('plugin-quick-search', 'pqs_ajax', array(
@@ -213,6 +219,124 @@ class PluginQuickSearch {
                     transform: translateY(0);
                 }
             }
+
+            /* iOS-style toggle switch for settings page */
+            .pqs-toggle-container {
+                display: flex;
+                align-items: center;
+                gap: 15px;
+                margin: 10px 0;
+            }
+
+            .pqs-toggle-option {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                min-width: 120px;
+            }
+
+            .pqs-toggle-label {
+                font-weight: 600;
+                font-size: 14px;
+                color: #333;
+                margin-bottom: 2px;
+            }
+
+            .pqs-toggle-description {
+                font-size: 12px;
+                color: #666;
+                font-style: italic;
+            }
+
+            .pqs-toggle-switch {
+                position: relative;
+                display: inline-block;
+                width: 60px;
+                height: 34px;
+                margin: 0;
+            }
+
+            .pqs-toggle-switch input {
+                opacity: 0;
+                width: 0;
+                height: 0;
+            }
+
+            .pqs-toggle-slider {
+                position: absolute;
+                cursor: pointer;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background-color: #ccc;
+                transition: .4s;
+                border-radius: 34px;
+            }
+
+            .pqs-toggle-slider:before {
+                position: absolute;
+                content: "";
+                height: 26px;
+                width: 26px;
+                left: 4px;
+                bottom: 4px;
+                background-color: white;
+                transition: .4s;
+                border-radius: 50%;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            }
+
+            .pqs-toggle-switch input:checked + .pqs-toggle-slider {
+                background-color: #007cba;
+            }
+
+            .pqs-toggle-switch input:focus + .pqs-toggle-slider {
+                box-shadow: 0 0 1px #007cba;
+            }
+
+            .pqs-toggle-switch input:checked + .pqs-toggle-slider:before {
+                transform: translateX(26px);
+            }
+
+            .pqs-toggle-switch:hover .pqs-toggle-slider {
+                background-color: #bbb;
+            }
+
+            .pqs-toggle-switch:hover input:checked + .pqs-toggle-slider {
+                background-color: #005a87;
+            }
+
+            /* Cache status styling */
+            .pqs-cache-status {
+                float: right;
+                font-size: 11px;
+                color: #666;
+                font-style: italic;
+                margin-left: auto;
+            }
+
+            .pqs-cache-notification {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                padding: 8px 12px;
+                border-radius: 4px;
+                font-size: 12px;
+                z-index: 100001;
+            }
+
+            .pqs-notification-success {
+                background: #d4edda;
+                color: #155724;
+                border: 1px solid #c3e6cb;
+            }
+
+            .pqs-notification-info {
+                background: #d1ecf1;
+                color: #0c5460;
+                border: 1px solid #bee5eb;
+            }
         ';
     }
 
@@ -244,10 +368,48 @@ class PluginQuickSearch {
         register_setting('pqs_settings', 'pqs_settings', array($this, 'sanitize_settings'));
 
         add_settings_section(
+            'pqs_keyboard_section',
+            'Keyboard Shortcut',
+            array($this, 'keyboard_section_callback'),
+            'pqs_settings'
+        );
+
+        add_settings_section(
             'pqs_highlight_section',
             'Highlight Box Settings',
             array($this, 'settings_section_callback'),
             'pqs_settings'
+        );
+
+        add_settings_field(
+            'keyboard_shortcut',
+            'Choose Keyboard Shortcut',
+            array($this, 'keyboard_shortcut_render'),
+            'pqs_settings',
+            'pqs_keyboard_section'
+        );
+
+        add_settings_section(
+            'pqs_cache_section',
+            'Cache Management',
+            array($this, 'cache_section_callback'),
+            'pqs_settings'
+        );
+
+        add_settings_field(
+            'cache_duration',
+            'Cache Duration (minutes)',
+            array($this, 'cache_duration_render'),
+            'pqs_settings',
+            'pqs_cache_section'
+        );
+
+        add_settings_field(
+            'auto_refresh_cache',
+            'Auto-refresh Cache',
+            array($this, 'auto_refresh_cache_render'),
+            'pqs_settings',
+            'pqs_cache_section'
         );
 
         add_settings_field(
@@ -304,7 +466,32 @@ class PluginQuickSearch {
         // Highlight opacity (0.1-1.0)
         $sanitized['highlight_opacity'] = max(0.1, min(1.0, floatval($input['highlight_opacity'])));
 
+        // Keyboard shortcut (cmd_shift_p or cmd_k)
+        $sanitized['keyboard_shortcut'] = in_array($input['keyboard_shortcut'], array('cmd_shift_p', 'cmd_k'))
+            ? $input['keyboard_shortcut']
+            : 'cmd_shift_p';
+
+        // Cache duration (5-1440 minutes)
+        $sanitized['cache_duration'] = max(5, min(1440, intval($input['cache_duration'])));
+
+        // Auto-refresh cache (boolean)
+        $sanitized['auto_refresh_cache'] = !empty($input['auto_refresh_cache']);
+
         return $sanitized;
+    }
+
+    /**
+     * Keyboard section callback
+     */
+    public function keyboard_section_callback() {
+        echo '<p>Choose which keyboard shortcut opens the plugin search modal.</p>';
+    }
+
+    /**
+     * Cache section callback
+     */
+    public function cache_section_callback() {
+        echo '<p>Configure caching behavior to improve performance on sites with many plugins.</p>';
     }
 
     /**
@@ -312,6 +499,52 @@ class PluginQuickSearch {
      */
     public function settings_section_callback() {
         echo '<p>Configure how the highlight box behaves when you select a plugin from search results.</p>';
+    }
+
+    /**
+     * Render keyboard shortcut field
+     */
+    public function keyboard_shortcut_render() {
+        $settings = $this->get_settings();
+        $current_shortcut = $settings['keyboard_shortcut'];
+        ?>
+        <div class="pqs-toggle-container">
+            <div class="pqs-toggle-option">
+                <span class="pqs-toggle-label">Cmd/Ctrl + Shift + P</span>
+                <span class="pqs-toggle-description">(Current default)</span>
+            </div>
+            <label class="pqs-toggle-switch">
+                <input type="hidden" name="pqs_settings[keyboard_shortcut]" value="cmd_shift_p">
+                <input type="checkbox" name="pqs_settings[keyboard_shortcut]" value="cmd_k" <?php checked($current_shortcut, 'cmd_k'); ?> onchange="this.previousElementSibling.disabled = this.checked;">
+                <span class="pqs-toggle-slider"></span>
+            </label>
+            <div class="pqs-toggle-option">
+                <span class="pqs-toggle-label">Cmd/Ctrl + K</span>
+                <span class="pqs-toggle-description">(VS Code style)</span>
+            </div>
+        </div>
+        <p class="description">Choose your preferred keyboard shortcut to open the plugin search modal.</p>
+        <?php
+    }
+
+    /**
+     * Render cache duration field
+     */
+    public function cache_duration_render() {
+        $settings = $this->get_settings();
+        echo '<input type="number" name="pqs_settings[cache_duration]" value="' . esc_attr($settings['cache_duration']) . '" min="5" max="1440" step="5" />';
+        echo '<p class="description">How long to cache plugin data (5-1440 minutes). Default: 60 minutes</p>';
+    }
+
+    /**
+     * Render auto-refresh cache field
+     */
+    public function auto_refresh_cache_render() {
+        $settings = $this->get_settings();
+        $checked = checked($settings['auto_refresh_cache'], true, false);
+        echo '<input type="checkbox" name="pqs_settings[auto_refresh_cache]" value="1" ' . $checked . ' />';
+        echo '<label for="pqs_settings[auto_refresh_cache]">Automatically refresh cache when plugins are activated/deactivated</label>';
+        echo '<p class="description">Recommended for optimal performance and accuracy</p>';
     }
 
     /**
@@ -369,7 +602,7 @@ class PluginQuickSearch {
                 <h3>How to Use</h3>
                 <ol>
                     <li>Go to <strong>Plugins → Installed Plugins</strong></li>
-                    <li>Press <strong>Cmd+Shift+P</strong> (Mac) or <strong>Ctrl+Shift+P</strong> (Windows/Linux)</li>
+                    <li>Press your configured keyboard shortcut (see above setting)</li>
                     <li>Type to search for plugins</li>
                     <li>Use arrow keys to navigate and press <strong>Enter</strong> to select</li>
                     <li>The selected plugin will be highlighted with your custom settings</li>
