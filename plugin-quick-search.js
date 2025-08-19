@@ -7,8 +7,8 @@
     let allPlugins = [];
     let searchCache = new Map(); // Cache search results
     let debounceTimer = null;
-    const DEBOUNCE_DELAY = 150; // milliseconds
-    const MAX_SCORING_ITEMS = 100; // Stop scoring after this many matches
+    const DEBOUNCE_DELAY = 250; // milliseconds (Phase 1 optimization)
+    const MAX_SCORING_ITEMS = 20; // Phase 1: Stop scoring after this many matches (reduced from 100)
     const MAX_DISPLAY_ITEMS = 20; // Maximum items to display
 
     // Default settings (will be overridden by PHP settings)
@@ -308,47 +308,67 @@
         return score;
     }
     
-    // Filter plugins with caching and optimizations
+    // Filter plugins with caching and optimizations (Phase 1: Lazy fuzzy matching)
     function filterPlugins(query) {
         selectedIndex = 0;
-        
+
         // Early exit for empty query
         if (query === '') {
             filteredPlugins = allPlugins.slice(0, MAX_DISPLAY_ITEMS);
             renderResults();
             return;
         }
-        
+
         const lowerQuery = query.toLowerCase();
-        
+
         // Check cache first
         if (searchCache.has(lowerQuery)) {
             filteredPlugins = searchCache.get(lowerQuery);
             renderResults();
             return;
         }
-        
-        // First pass: Find matching plugins (limit to MAX_SCORING_ITEMS for performance)
-        const matchingPlugins = [];
-        let matchCount = 0;
-        
-        for (let i = 0; i < allPlugins.length && matchCount < MAX_SCORING_ITEMS; i++) {
+
+        // Phase 1: Tiered search - exact and partial matches first
+        const exactMatches = [];
+        const partialMatches = [];
+        let processedCount = 0;
+
+        // First pass: Only exact and partial string matches (no fuzzy matching yet)
+        for (let i = 0; i < allPlugins.length && processedCount < MAX_SCORING_ITEMS; i++) {
             const plugin = allPlugins[i];
             const nameIncludes = plugin.nameLower.includes(lowerQuery);
             const descIncludes = plugin.descriptionLower.includes(lowerQuery);
 
             if (nameIncludes || descIncludes) {
-                matchingPlugins.push(plugin);
-                matchCount++;
-                continue;
+                if (plugin.nameLower === lowerQuery || plugin.nameLower.startsWith(lowerQuery)) {
+                    exactMatches.push(plugin);
+                } else {
+                    partialMatches.push(plugin);
+                }
+                processedCount++;
+            }
+        }
+
+        let matchingPlugins = [...exactMatches, ...partialMatches];
+
+        // Phase 1: Lazy fuzzy matching - only if we have fewer than 5 results
+        if (matchingPlugins.length < 5) {
+            const fuzzyMatches = [];
+
+            for (let i = 0; i < allPlugins.length && fuzzyMatches.length < (20 - matchingPlugins.length); i++) {
+                const plugin = allPlugins[i];
+
+                // Skip if already in exact/partial matches
+                if (matchingPlugins.includes(plugin)) continue;
+
+                const distance = levenshteinDistance(plugin.nameLower, lowerQuery);
+                const threshold = Math.ceil(Math.min(plugin.nameLower.length, lowerQuery.length) * 0.4);
+                if (distance <= threshold) {
+                    fuzzyMatches.push(plugin);
+                }
             }
 
-            const distance = levenshteinDistance(plugin.nameLower, lowerQuery);
-            const threshold = Math.ceil(Math.min(plugin.nameLower.length, lowerQuery.length) * 0.4);
-            if (distance <= threshold) {
-                matchingPlugins.push(plugin);
-                matchCount++;
-            }
+            matchingPlugins = [...matchingPlugins, ...fuzzyMatches];
         }
 
         // If no matches found, update and exit early
@@ -358,25 +378,25 @@
             renderResults();
             return;
         }
-        
+
         // Calculate relevance scores
         const scoredPlugins = matchingPlugins.map(plugin => ({
             ...plugin,
             score: calculateRelevanceScore(plugin, lowerQuery)
         }));
-        
+
         // Sort by relevance score (highest first)
         scoredPlugins.sort((a, b) => b.score - a.score);
-        
+
         // Limit results for display
         const limitedResults = scoredPlugins.slice(0, MAX_DISPLAY_ITEMS);
-        
+
         // Remove score property and assign to filteredPlugins
         filteredPlugins = limitedResults.map(({ score, ...plugin }) => plugin);
-        
+
         // Cache the results
         searchCache.set(lowerQuery, filteredPlugins);
-        
+
         renderResults();
     }
     
