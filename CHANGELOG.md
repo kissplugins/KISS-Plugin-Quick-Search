@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cache status display in search modal
 - **Graceful Fallback**: Automatically falls back to fresh scanning if cache is invalid or corrupted
 - **Performance Monitoring**: Detailed logging of cache status, scan times, and performance metrics
+- **Added API Documentation**: CACHE-API.md file added
 
 #### Enhanced
 - **Customizable Keyboard Shortcuts**: Choose between `Cmd/Ctrl+Shift+P` (default) or `Cmd/Ctrl+K` (VS Code style)
