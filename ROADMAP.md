@@ -1,3 +1,14 @@
+## New Feature Requests
+
+### **Quick Settings Navigation** - **Status: Done**
+- **Shift + Enter** on selected plugin to navigate directly to its Settings page
+- **Technical Approach**: Detect "Settings" links in plugin row actions during data collection
+- **Fallback Strategy**: For plugins without settings links, show notification "No settings page found"
+- **User Experience**: Seamless navigation from search → settings without manual clicking
+- **Implementation Complexity**: Medium (requires settings link detection and URL extraction)
+
+---
+
 Looking at your Plugin Quick Search code, I can identify several performance bottlenecks that are causing the laggy typing experience:
 
 ## Main Performance Issues

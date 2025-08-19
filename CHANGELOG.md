@@ -5,6 +5,31 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.12] - 2025-08-19
+
+### Improved
+- **Enhanced Settings Detection**: Quick Settings Navigation now supports broader plugin compatibility
+  - Added detection for "Configure" and "Configuration" links in addition to "Settings"
+  - Improved plugin compatibility for plugins that use different terminology
+  - Uses partial matching for better detection (e.g., "configur" matches "configure", "configuration")
+
+## [1.0.11] - 2025-08-19
+
+### Added
+- **Quick Settings Navigation**: Press `Shift+Enter` on selected plugin to navigate directly to its settings page
+  - Automatically detects plugins with settings pages during initialization
+  - Graceful fallback with notification for plugins without settings
+  - Added `Shift+Enter` instruction to help section
+  - Smooth notification animations for user feedback
+
+## [1.0.10] - 2025-08-19
+
+### Added
+- **Plugin Activation Status**: Search results now display whether each plugin is "Active" or "Inactive"
+  - Efficient upfront status collection during initialization (no performance impact)
+  - Color-coded status badges: green for active, red for inactive
+  - Status indicators adapt to selected/highlighted states
+
 ## [1.0.9] - 2025-08-19
 
 ### Improved
