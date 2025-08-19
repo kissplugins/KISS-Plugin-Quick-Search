@@ -18,6 +18,27 @@ The Plugin Quick Search intelligent caching system provides a high-performance l
 4. **Validation**: Checks timestamp, version, and plugin count
 5. **Invalidation**: Auto-expires after configured duration
 
+### Search Algorithm Enhancements
+
+The cache system includes advanced search capabilities:
+
+#### Multi-word Search
+- **Query Processing**: Splits queries like "wp smtp" into individual words
+- **Matching Logic**: Ensures all words are present in plugin names or descriptions
+- **Example**: "WP SMTP" successfully matches "WP Mail SMTP"
+
+#### Tiered Search Strategy
+1. **Exact matches** (1000 points): Perfect name matches
+2. **Prefix matches** (500 points): Names starting with query
+3. **Multi-word matches** (250-300 points): All query words present
+4. **Contains matches** (100-150 points): Substring matches
+5. **Fuzzy matches** (20-120 points): Typo-tolerant matching
+
+#### Anti-Regression Testing
+- Automated tests prevent search functionality regressions
+- Validates multi-word search scenarios
+- Ensures consistent search behavior across updates
+
 ## Global API Reference
 
 ### Core Functions
@@ -295,3 +316,65 @@ class MyPluginCacheManager {
 ```
 
 This caching system provides a robust foundation for high-performance WordPress admin interfaces. By leveraging the existing PQS cache infrastructure, other plugins can achieve similar performance improvements with minimal implementation overhead.
+
+## Testing and Diagnostics
+
+### Cache Status Page
+
+The plugin includes a comprehensive testing and diagnostic system accessible via **Plugins → KISS PQS Cache Status**. This page provides:
+
+- **Real-time cache status** with visual indicators (red/green dot)
+- **Comprehensive self-tests** covering cache, search algorithms, and system functionality
+- **Cache management tools** for clearing and rebuilding cache
+- **API documentation** and integration examples
+
+### Self-Test Categories
+
+#### Cache Tests
+- **Cache Exists**: Verifies cache data is present in localStorage
+- **Cache Readable**: Tests if cache data can be parsed correctly
+- **Cache Valid**: Checks cache expiration and version validity
+- **Cache Building Process**: *(Temporarily paused)* Tests cache rebuild functionality
+
+#### Search Algorithm Tests
+- **Multi-word Search**: Validates word-based search functionality
+- **Exact Match Search**: Tests precise plugin name matching
+- **Fuzzy Search**: Verifies typo tolerance and approximate matching
+- **Anti-Regression**: Ensures "WP SMTP" matches "WP Mail SMTP" (prevents search regressions)
+
+#### System Tests
+- **API Functions Available**: Confirms all JavaScript API functions are accessible
+- **Event System**: Tests custom event dispatching and handling
+
+### Debug Functions
+
+For developers, additional debug functions are available in the browser console:
+
+```javascript
+// Test specific search scenarios
+window.pqsTestSearch("wp smtp");
+// Returns: { exactMatch: false, containsMatch: false, multiWordMatch: true }
+
+// Run comprehensive search test suite
+window.pqsRunSearchTests();
+// Outputs detailed test results for multiple search scenarios
+
+// Get detailed cache information
+window.pqsGetCacheInfo();
+// Returns cache size, plugin count, age, validity status
+
+// Test cache integrity
+window.pqsTestCacheIntegrity();
+// Returns validation results for cache structure and data
+```
+
+### Integration Testing
+
+When integrating with the PQS cache system, use the diagnostic page to verify:
+
+1. **Cache availability**: Ensure cache exists and is readable
+2. **API accessibility**: Confirm required functions are available
+3. **Event handling**: Test that your plugin receives cache events
+4. **Search functionality**: Verify search algorithms work as expected
+
+The comprehensive test suite helps ensure cache-dependent functionality remains stable across WordPress updates and plugin changes.

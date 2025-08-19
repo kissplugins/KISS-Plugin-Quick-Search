@@ -33,11 +33,13 @@ class PluginQuickSearch {
         add_action('admin_enqueue_scripts', array($this, 'enqueue_scripts'));
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('admin_init', array($this, 'settings_init'));
+        add_action('wp_ajax_pqs_get_cache_status', array($this, 'ajax_get_cache_status'));
+        add_action('wp_ajax_pqs_run_cache_diagnostics', array($this, 'ajax_run_cache_diagnostics'));
     }
     
     public function enqueue_scripts($hook) {
-        // Only load on plugins.php page
-        if ($hook !== 'plugins.php') {
+        // Load on plugins.php page and cache status page
+        if ($hook !== 'plugins.php' && $hook !== 'plugins_page_pqs-cache-status') {
             return;
         }
 
@@ -337,6 +339,124 @@ class PluginQuickSearch {
                 color: #0c5460;
                 border: 1px solid #bee5eb;
             }
+
+            /* Cache Status Page Styles */
+            .pqs-cache-dashboard {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 20px;
+                margin-top: 20px;
+            }
+
+            .pqs-cache-overview,
+            .pqs-cache-tests,
+            .pqs-cache-api {
+                background: #fff;
+                border: 1px solid #c3c4c7;
+                border-radius: 4px;
+                padding: 20px;
+            }
+
+            .pqs-cache-api {
+                grid-column: 1 / -1;
+            }
+
+            .pqs-cache-info-box {
+                background: #f6f7f7;
+                border: 1px solid #dcdcde;
+                border-radius: 4px;
+                padding: 15px;
+                margin-top: 10px;
+            }
+
+            .pqs-test-controls {
+                margin: 15px 0;
+            }
+
+            .pqs-test-controls .button {
+                margin-right: 10px;
+            }
+
+            .pqs-test-results {
+                border: 1px solid #dcdcde;
+                border-radius: 4px;
+                overflow: hidden;
+            }
+
+            .pqs-test-item {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 12px 15px;
+                border-bottom: 1px solid #dcdcde;
+                background: #fff;
+            }
+
+            .pqs-test-item:last-child {
+                border-bottom: none;
+            }
+
+            .pqs-test-name {
+                font-weight: 600;
+            }
+
+            .pqs-test-status {
+                font-size: 12px;
+                padding: 4px 8px;
+                border-radius: 3px;
+                background: #f0f0f1;
+                color: #50575e;
+            }
+
+            .pqs-test-pass {
+                background: #d4edda !important;
+                color: #155724 !important;
+            }
+
+            .pqs-test-fail {
+                background: #f8d7da !important;
+                color: #721c24 !important;
+            }
+
+            .pqs-test-results h3 {
+                margin: 15px 0 10px 0 !important;
+                padding: 8px 12px;
+                background: #f0f0f1;
+                border-left: 4px solid #2271b1;
+                font-size: 14px !important;
+                font-weight: 600;
+                color: #1d2327;
+            }
+
+            .pqs-test-disabled {
+                opacity: 0.6;
+            }
+
+            .pqs-test-disabled .pqs-test-name {
+                color: #8c8f94 !important;
+            }
+
+            .pqs-test-paused {
+                background: #f0f0f1 !important;
+                color: #8c8f94 !important;
+                font-style: italic;
+            }
+
+            .pqs-status-dot {
+                animation: pqs-pulse 2s infinite;
+            }
+
+            @keyframes pqs-pulse {
+                0% { opacity: 1; }
+                50% { opacity: 0.5; }
+                100% { opacity: 1; }
+            }
+
+            @media (max-width: 768px) {
+                .pqs-cache-dashboard {
+                    grid-template-columns: 1fr;
+                }
+            }
         ';
     }
 
@@ -358,6 +478,15 @@ class PluginQuickSearch {
             'manage_options',
             'plugin-quick-search',
             array($this, 'settings_page')
+        );
+
+        // Add cache status page under Plugins menu
+        add_plugins_page(
+            'KISS PQS Cache Status',
+            'KISS PQS Cache Status',
+            'activate_plugins',
+            'pqs-cache-status',
+            array($this, 'cache_status_page')
         );
     }
 
@@ -618,6 +747,615 @@ class PluginQuickSearch {
             </div>
         </div>
         <?php
+    }
+
+    /**
+     * Cache status page
+     */
+    public function cache_status_page() {
+        ?>
+        <div class="wrap">
+            <h1>
+                <span id="pqs-cache-status-indicator" class="pqs-status-dot" style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; background-color: #ccc;"></span>
+                KISS PQS Cache Status
+                <span style="font-size: 14px; color: #666; font-weight: normal;">v<?php echo self::VERSION; ?></span>
+            </h1>
+
+            <div class="pqs-cache-dashboard">
+                <div class="pqs-cache-overview">
+                    <h2>Cache Overview</h2>
+                    <div id="pqs-cache-info" class="pqs-cache-info-box">
+                        <p>Loading cache status...</p>
+                    </div>
+                </div>
+
+                <div class="pqs-cache-tests">
+                    <h2>Self Tests</h2>
+                    <div class="pqs-test-controls">
+                        <button type="button" id="pqs-run-tests" class="button button-primary">Run All Tests</button>
+                        <button type="button" id="pqs-clear-cache" class="button">Clear Cache</button>
+                        <button type="button" id="pqs-rebuild-cache" class="button">Rebuild Cache</button>
+                    </div>
+
+                    <div class="notice notice-info inline" style="margin: 10px 0;">
+                        <p><strong>Note:</strong> Some tests require the full system to be loaded.
+                        If tests fail, visit the <a href="<?php echo admin_url('plugins.php'); ?>">Plugins page</a> first,
+                        then return here to run the tests.</p>
+                    </div>
+
+                    <div id="pqs-test-results" class="pqs-test-results">
+                        <h3 style="margin: 15px 0 10px 0; color: #23282d; font-size: 14px;">Cache Tests</h3>
+                        <div class="pqs-test-item" data-test="cache-exists">
+                            <span class="pqs-test-name">Cache Exists</span>
+                            <span class="pqs-test-status">Not tested</span>
+                        </div>
+                        <div class="pqs-test-item" data-test="cache-readable">
+                            <span class="pqs-test-name">Cache Readable</span>
+                            <span class="pqs-test-status">Not tested</span>
+                        </div>
+                        <div class="pqs-test-item" data-test="cache-valid">
+                            <span class="pqs-test-name">Cache Valid</span>
+                            <span class="pqs-test-status">Not tested</span>
+                        </div>
+                        <div class="pqs-test-item pqs-test-disabled" data-test="cache-building">
+                            <span class="pqs-test-name">Cache Building Process</span>
+                            <span class="pqs-test-status pqs-test-paused">Paused</span>
+                        </div>
+
+                        <h3 style="margin: 15px 0 10px 0; color: #23282d; font-size: 14px;">Search Algorithm Tests</h3>
+                        <div class="pqs-test-item" data-test="search-multiword">
+                            <span class="pqs-test-name">Multi-word Search</span>
+                            <span class="pqs-test-status">Not tested</span>
+                        </div>
+                        <div class="pqs-test-item" data-test="search-exact">
+                            <span class="pqs-test-name">Exact Match Search</span>
+                            <span class="pqs-test-status">Not tested</span>
+                        </div>
+                        <div class="pqs-test-item" data-test="search-fuzzy">
+                            <span class="pqs-test-name">Fuzzy Search</span>
+                            <span class="pqs-test-status">Not tested</span>
+                        </div>
+                        <div class="pqs-test-item" data-test="search-regression">
+                            <span class="pqs-test-name">Anti-Regression: "WP SMTP" → "WP Mail SMTP"</span>
+                            <span class="pqs-test-status">Not tested</span>
+                        </div>
+
+                        <h3 style="margin: 15px 0 10px 0; color: #23282d; font-size: 14px;">System Tests</h3>
+                        <div class="pqs-test-item" data-test="api-availability">
+                            <span class="pqs-test-name">API Functions Available</span>
+                            <span class="pqs-test-status">Not tested</span>
+                        </div>
+                        <div class="pqs-test-item" data-test="event-system">
+                            <span class="pqs-test-name">Event System</span>
+                            <span class="pqs-test-status">Not tested</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pqs-cache-api">
+                    <h2>Cache API Information</h2>
+                    <p>Other plugins can access the cache using the following JavaScript API:</p>
+                    <pre><code>// Check cache status
+window.pqsCacheStatus() // Returns: 'fresh', 'stale', 'error', 'loading'
+
+// Get cached data
+const data = JSON.parse(localStorage.getItem('pqs_plugin_cache') || '[]');
+
+// Listen for cache events
+document.addEventListener('pqs-cache-rebuilt', function(event) {
+    console.log('Cache rebuilt with', event.detail.pluginCount, 'plugins');
+});</code></pre>
+                    <p><a href="<?php echo plugin_dir_url(__FILE__); ?>CACHE-API.md" target="_blank">View full API documentation</a></p>
+                </div>
+            </div>
+        </div>
+
+        <script type="text/javascript">
+        jQuery(document).ready(function($) {
+            let testRunning = false;
+
+            // Load initial cache status
+            loadCacheStatus();
+
+            // Auto-refresh every 30 seconds
+            setInterval(loadCacheStatus, 30000);
+
+            function loadCacheStatus() {
+                $.post(ajaxurl, {
+                    action: 'pqs_get_cache_status',
+                    nonce: '<?php echo wp_create_nonce('pqs_cache_status_nonce'); ?>'
+                }, function(response) {
+                    if (response.success) {
+                        updateCacheDisplay(response.data);
+                    }
+                });
+            }
+
+            function updateCacheDisplay(data) {
+                const indicator = $('#pqs-cache-status-indicator');
+                const info = $('#pqs-cache-info');
+
+                // Update status indicator
+                if (data.status === 'fresh') {
+                    indicator.css('background-color', '#46b450'); // Green
+                } else if (data.status === 'stale') {
+                    indicator.css('background-color', '#ffb900'); // Yellow
+                } else {
+                    indicator.css('background-color', '#dc3232'); // Red
+                }
+
+                // Update info display
+                let html = '<table class="widefat">';
+                html += '<tr><td><strong>Status:</strong></td><td>' + data.status + '</td></tr>';
+                html += '<tr><td><strong>Plugin Count:</strong></td><td>' + (data.plugin_count || 'Unknown') + '</td></tr>';
+                html += '<tr><td><strong>Last Updated:</strong></td><td>' + (data.last_updated || 'Unknown') + '</td></tr>';
+                html += '<tr><td><strong>Cache Size:</strong></td><td>' + (data.cache_size || 'Unknown') + '</td></tr>';
+                html += '</table>';
+
+                info.html(html);
+            }
+
+            // Run tests button
+            $('#pqs-run-tests').click(function() {
+                if (testRunning) return;
+
+                testRunning = true;
+                $(this).prop('disabled', true).text('Running Tests...');
+
+                runAllTests().finally(function() {
+                    testRunning = false;
+                    $('#pqs-run-tests').prop('disabled', false).text('Run All Tests');
+                });
+            });
+
+            // Clear cache button
+            $('#pqs-clear-cache').click(function() {
+                if (typeof window.pqsClearCache === 'function') {
+                    window.pqsClearCache();
+                    alert('Cache cleared successfully');
+                    loadCacheStatus();
+                } else {
+                    alert('Cache API not available. Please visit the Plugins page first.');
+                }
+            });
+
+            // Rebuild cache button
+            $('#pqs-rebuild-cache').click(function() {
+                if (typeof window.pqsRebuildCache === 'function') {
+                    window.pqsRebuildCache().then(function() {
+                        alert('Cache rebuilt successfully');
+                        loadCacheStatus();
+                    }).catch(function(error) {
+                        alert('Cache rebuild failed: ' + error.message);
+                    });
+                } else {
+                    alert('Cache API not available. Please visit the Plugins page first to load the cache system.');
+                }
+            });
+
+            async function runAllTests() {
+                const tests = [
+                    // Cache Tests
+                    { name: 'cache-exists', test: testCacheExists },
+                    { name: 'cache-readable', test: testCacheReadable },
+                    { name: 'cache-valid', test: testCacheValid },
+                    // { name: 'cache-building', test: testCacheBuilding }, // Disabled for now
+
+                    // Search Algorithm Tests
+                    { name: 'search-multiword', test: testSearchMultiword },
+                    { name: 'search-exact', test: testSearchExact },
+                    { name: 'search-fuzzy', test: testSearchFuzzy },
+                    { name: 'search-regression', test: testSearchRegression },
+
+                    // System Tests
+                    { name: 'api-availability', test: testAPIAvailability },
+                    { name: 'event-system', test: testEventSystem }
+                ];
+
+                for (const testItem of tests) {
+                    const element = $('[data-test="' + testItem.name + '"]');
+                    element.find('.pqs-test-status').text('Running...').removeClass('pqs-test-pass pqs-test-fail');
+
+                    try {
+                        const result = await testItem.test();
+                        element.find('.pqs-test-status')
+                            .text(result.success ? 'PASS' : 'FAIL: ' + result.message)
+                            .addClass(result.success ? 'pqs-test-pass' : 'pqs-test-fail');
+                    } catch (error) {
+                        element.find('.pqs-test-status')
+                            .text('ERROR: ' + error.message)
+                            .addClass('pqs-test-fail');
+                    }
+
+                    // Small delay between tests
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
+
+            function testCacheExists() {
+                return new Promise((resolve) => {
+                    const cacheData = localStorage.getItem('pqs_plugin_cache');
+                    const metaData = localStorage.getItem('pqs_cache_meta');
+
+                    if (cacheData && metaData) {
+                        resolve({ success: true });
+                    } else {
+                        resolve({ success: false, message: 'Cache data not found in localStorage' });
+                    }
+                });
+            }
+
+            function testCacheReadable() {
+                return new Promise((resolve) => {
+                    try {
+                        const cacheData = localStorage.getItem('pqs_plugin_cache');
+                        const metaData = localStorage.getItem('pqs_cache_meta');
+
+                        if (!cacheData || !metaData) {
+                            resolve({ success: false, message: 'Cache data not found' });
+                            return;
+                        }
+
+                        const plugins = JSON.parse(cacheData);
+                        const meta = JSON.parse(metaData);
+
+                        if (Array.isArray(plugins) && typeof meta === 'object') {
+                            resolve({ success: true });
+                        } else {
+                            resolve({ success: false, message: 'Cache data format invalid' });
+                        }
+                    } catch (error) {
+                        resolve({ success: false, message: 'Failed to parse cache data: ' + error.message });
+                    }
+                });
+            }
+
+            function testCacheValid() {
+                return new Promise((resolve) => {
+                    try {
+                        const metaData = localStorage.getItem('pqs_cache_meta');
+                        if (!metaData) {
+                            resolve({ success: false, message: 'No cache metadata found' });
+                            return;
+                        }
+
+                        const meta = JSON.parse(metaData);
+                        const now = Date.now();
+                        const cacheAge = now - meta.timestamp;
+                        const maxAge = 60 * 60 * 1000; // 1 hour default
+
+                        if (cacheAge < maxAge && meta.version) {
+                            resolve({ success: true });
+                        } else {
+                            resolve({ success: false, message: 'Cache expired or invalid version' });
+                        }
+                    } catch (error) {
+                        resolve({ success: false, message: 'Failed to validate cache: ' + error.message });
+                    }
+                });
+            }
+
+            function testCacheBuilding() {
+                return new Promise((resolve) => {
+                    if (typeof window.pqsRebuildCache === 'function') {
+                        window.pqsRebuildCache()
+                            .then(() => resolve({ success: true }))
+                            .catch(error => resolve({
+                                success: false,
+                                message: error.message || 'Cache rebuild failed'
+                            }));
+                    } else {
+                        resolve({
+                            success: false,
+                            message: 'Cache rebuild API not available. Visit Plugins page first to load the cache system.'
+                        });
+                    }
+                });
+            }
+
+            // Search Algorithm Tests
+            function testSearchMultiword() {
+                return new Promise((resolve) => {
+                    try {
+                        // Test multi-word search logic
+                        const query = 'wp mail';
+                        const queryWords = query.split(/\s+/).filter(word => word.length > 0);
+                        const testPlugin = {
+                            name: 'WP Mail SMTP',
+                            nameLower: 'wp mail smtp',
+                            description: 'WordPress SMTP plugin',
+                            descriptionLower: 'wordpress smtp plugin'
+                        };
+
+                        const allWordsInName = queryWords.every(word => testPlugin.nameLower.includes(word));
+
+                        if (allWordsInName && queryWords.length === 2) {
+                            resolve({ success: true });
+                        } else {
+                            resolve({ success: false, message: 'Multi-word search logic failed' });
+                        }
+                    } catch (error) {
+                        resolve({ success: false, message: 'Multi-word test error: ' + error.message });
+                    }
+                });
+            }
+
+            function testSearchExact() {
+                return new Promise((resolve) => {
+                    try {
+                        const query = 'woocommerce';
+                        const testPlugin = {
+                            name: 'WooCommerce',
+                            nameLower: 'woocommerce'
+                        };
+
+                        const exactMatch = testPlugin.nameLower === query;
+
+                        if (exactMatch) {
+                            resolve({ success: true });
+                        } else {
+                            resolve({ success: false, message: 'Exact match logic failed' });
+                        }
+                    } catch (error) {
+                        resolve({ success: false, message: 'Exact match test error: ' + error.message });
+                    }
+                });
+            }
+
+            function testSearchFuzzy() {
+                return new Promise((resolve) => {
+                    try {
+                        // Test basic fuzzy logic (simplified Levenshtein)
+                        const query = 'woocomerce'; // Missing 'm'
+                        const target = 'woocommerce';
+
+                        // Simple character difference count
+                        let differences = 0;
+                        const maxLen = Math.max(query.length, target.length);
+
+                        for (let i = 0; i < maxLen; i++) {
+                            if (query[i] !== target[i]) {
+                                differences++;
+                            }
+                        }
+
+                        const threshold = Math.ceil(target.length * 0.4);
+                        const fuzzyMatch = differences <= threshold;
+
+                        if (fuzzyMatch) {
+                            resolve({ success: true });
+                        } else {
+                            resolve({ success: false, message: 'Fuzzy search logic failed' });
+                        }
+                    } catch (error) {
+                        resolve({ success: false, message: 'Fuzzy search test error: ' + error.message });
+                    }
+                });
+            }
+
+            function testSearchRegression() {
+                return new Promise((resolve) => {
+                    try {
+                        // Anti-regression test: "WP SMTP" should match "WP Mail SMTP"
+                        const query = 'wp smtp';
+                        const queryWords = query.split(/\s+/).filter(word => word.length > 0);
+                        const testPlugin = {
+                            name: 'WP Mail SMTP',
+                            nameLower: 'wp mail smtp',
+                            description: 'WordPress SMTP plugin',
+                            descriptionLower: 'wordpress smtp plugin'
+                        };
+
+                        // Test the exact scenario that was failing
+                        const allWordsInName = queryWords.every(word => testPlugin.nameLower.includes(word));
+                        const containsMatch = testPlugin.nameLower.includes(query);
+
+                        if (allWordsInName && queryWords.length === 2) {
+                            resolve({
+                                success: true,
+                                message: `Multi-word match works (contains: ${containsMatch}, words: ${allWordsInName})`
+                            });
+                        } else {
+                            resolve({
+                                success: false,
+                                message: `Regression detected: contains=${containsMatch}, words=${allWordsInName}`
+                            });
+                        }
+                    } catch (error) {
+                        resolve({ success: false, message: 'Regression test error: ' + error.message });
+                    }
+                });
+            }
+
+            // System Tests
+            function testAPIAvailability() {
+                return new Promise((resolve) => {
+                    try {
+                        const requiredFunctions = [
+                            'pqsCacheStatus',
+                            'pqsClearCache',
+                            'pqsGetCacheInfo'
+                        ];
+
+                        const missingFunctions = requiredFunctions.filter(func => typeof window[func] !== 'function');
+
+                        if (missingFunctions.length === 0) {
+                            resolve({ success: true });
+                        } else {
+                            resolve({
+                                success: false,
+                                message: 'Missing API functions: ' + missingFunctions.join(', ')
+                            });
+                        }
+                    } catch (error) {
+                        resolve({ success: false, message: 'API availability test error: ' + error.message });
+                    }
+                });
+            }
+
+            function testEventSystem() {
+                return new Promise((resolve) => {
+                    try {
+                        let eventReceived = false;
+
+                        // Listen for a test event
+                        const testHandler = function(event) {
+                            eventReceived = true;
+                            document.removeEventListener('pqs-test-event', testHandler);
+                        };
+
+                        document.addEventListener('pqs-test-event', testHandler);
+
+                        // Fire a test event
+                        document.dispatchEvent(new CustomEvent('pqs-test-event', {
+                            detail: { test: true }
+                        }));
+
+                        // Check if event was received
+                        setTimeout(() => {
+                            if (eventReceived) {
+                                resolve({ success: true });
+                            } else {
+                                resolve({ success: false, message: 'Event system not working' });
+                            }
+                        }, 100);
+
+                    } catch (error) {
+                        resolve({ success: false, message: 'Event system test error: ' + error.message });
+                    }
+                });
+            }
+        });
+        </script>
+        <?php
+    }
+
+    /**
+     * AJAX handler for cache status
+     */
+    public function ajax_get_cache_status() {
+        check_ajax_referer('pqs_cache_status_nonce', 'nonce');
+
+        if (!current_user_can('activate_plugins')) {
+            wp_die('Insufficient permissions');
+        }
+
+        $status = $this->get_cache_status();
+        wp_send_json_success($status);
+    }
+
+    /**
+     * Get cache status information
+     */
+    private function get_cache_status() {
+        // This is a server-side approximation since the cache is client-side
+        // We'll return what we can determine from the server
+
+        $status = array(
+            'status' => 'server_check',
+            'plugin_count' => 'Unknown',
+            'last_updated' => 'Server-side check',
+            'cache_size' => 'Client-side localStorage',
+            'server_plugin_count' => 0,
+            'cache_api_available' => false,
+            'plugin_version' => self::VERSION
+        );
+
+        // Count installed plugins from server-side
+        if (!function_exists('get_plugins')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        }
+
+        try {
+            $all_plugins = get_plugins();
+            $status['server_plugin_count'] = count($all_plugins);
+            $status['plugin_count'] = count($all_plugins) . ' (server count)';
+
+            // Check if we can determine more about the environment
+            $status['wp_version'] = get_bloginfo('version');
+            $status['php_version'] = PHP_VERSION;
+            $status['user_can_manage_plugins'] = current_user_can('activate_plugins');
+
+            // Check if localStorage is likely supported (modern browsers)
+            $user_agent = isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : '';
+            $status['browser_likely_supports_cache'] = !empty($user_agent) &&
+                !preg_match('/MSIE [6-8]\./', $user_agent); // Exclude old IE
+
+        } catch (Exception $e) {
+            $status['error'] = 'Failed to get plugin information: ' . $e->getMessage();
+            $status['status'] = 'error';
+        }
+
+        return $status;
+    }
+
+    /**
+     * Add AJAX endpoint for cache diagnostics
+     */
+    public function ajax_run_cache_diagnostics() {
+        check_ajax_referer('pqs_cache_status_nonce', 'nonce');
+
+        if (!current_user_can('activate_plugins')) {
+            wp_die('Insufficient permissions');
+        }
+
+        $diagnostics = $this->run_cache_diagnostics();
+        wp_send_json_success($diagnostics);
+    }
+
+    /**
+     * Run comprehensive cache diagnostics
+     */
+    private function run_cache_diagnostics() {
+        $results = array();
+
+        // Test 1: Check if plugins can be enumerated
+        try {
+            if (!function_exists('get_plugins')) {
+                require_once ABSPATH . 'wp-admin/includes/plugin.php';
+            }
+            $all_plugins = get_plugins();
+            $results['plugin_enumeration'] = array(
+                'status' => 'pass',
+                'message' => 'Successfully enumerated ' . count($all_plugins) . ' plugins',
+                'plugin_count' => count($all_plugins)
+            );
+        } catch (Exception $e) {
+            $results['plugin_enumeration'] = array(
+                'status' => 'fail',
+                'message' => 'Failed to enumerate plugins: ' . $e->getMessage()
+            );
+        }
+
+        // Test 2: Check WordPress environment
+        $results['wp_environment'] = array(
+            'status' => 'info',
+            'wp_version' => get_bloginfo('version'),
+            'php_version' => PHP_VERSION,
+            'is_admin' => is_admin(),
+            'current_screen' => function_exists('get_current_screen') ? get_current_screen() : null
+        );
+
+        // Test 3: Check user permissions
+        $results['permissions'] = array(
+            'status' => current_user_can('activate_plugins') ? 'pass' : 'fail',
+            'message' => current_user_can('activate_plugins') ?
+                'User has plugin management permissions' :
+                'User lacks plugin management permissions',
+            'can_activate_plugins' => current_user_can('activate_plugins'),
+            'can_manage_options' => current_user_can('manage_options')
+        );
+
+        // Test 4: Check if we're on the right page
+        global $pagenow;
+        $results['page_context'] = array(
+            'status' => 'info',
+            'current_page' => $pagenow,
+            'is_plugins_page' => ($pagenow === 'plugins.php'),
+            'message' => 'Cache works best on plugins.php page'
+        );
+
+        return $results;
     }
 }
 

@@ -33,8 +33,14 @@
     
     // Initialize on document ready
     $(document).ready(function() {
-        console.log('Plugin Quick Search: Initializing with intelligent cache...');
-        const startTime = performance.now();
+        // Check if we're on plugins page or cache status page
+        const isPluginsPage = $('#the-list').length > 0;
+        const isCacheStatusPage = $('#pqs-cache-status-indicator').length > 0;
+
+        if (!isPluginsPage && !isCacheStatusPage) {
+            console.log('Plugin Quick Search: Not on plugins or cache status page, skipping initialization');
+            return;
+        }
 
         // Load settings from PHP if available
         if (typeof pqs_ajax !== 'undefined') {
@@ -52,6 +58,17 @@
             }
         }
 
+        // If we're on cache status page, only initialize cache API
+        if (isCacheStatusPage && !isPluginsPage) {
+            console.log('Plugin Quick Search: Cache status page detected, initializing cache API only');
+            initializeCacheAPIOnly();
+            return;
+        }
+
+        // Full initialization for plugins page
+        console.log('Plugin Quick Search: Initializing with intelligent cache...');
+        const startTime = performance.now();
+
         initializeWithCache().then(() => {
             createModal();
             bindKeyboardShortcut();
@@ -62,6 +79,19 @@
             console.log(`Found ${allPlugins.length} plugins`);
         });
     });
+
+    // Initialize cache API only (for cache status page)
+    function initializeCacheAPIOnly() {
+        console.log('Plugin Quick Search: Cache API initialized for status page');
+
+        // Set a basic cache status since we can't scan plugins
+        cacheStatus = 'api_only';
+
+        // Fire a basic cache status event
+        document.dispatchEvent(new CustomEvent('pqs-cache-status-changed', {
+            detail: { status: 'api_only', source: 'status_page' }
+        }));
+    }
 
     // Initialize with intelligent caching
     async function initializeWithCache() {
@@ -138,10 +168,16 @@
         const isExpired = (now - meta.timestamp) > cacheDuration;
 
         // Also check if plugin count matches (quick integrity check)
-        const currentPluginCount = $('#the-list tr').length;
-        const cachedPluginCount = meta.pluginCount;
+        // Only do this check if we're on the plugins page
+        const $pluginList = $('#the-list tr');
+        if ($pluginList.length > 0) {
+            const currentPluginCount = $pluginList.length;
+            const cachedPluginCount = meta.pluginCount;
+            return !isExpired && (currentPluginCount === cachedPluginCount);
+        }
 
-        return !isExpired && (currentPluginCount === cachedPluginCount);
+        // If not on plugins page, just check expiration
+        return !isExpired;
     }
 
     // Scan plugins and update cache
@@ -151,8 +187,16 @@
         // Clear existing data
         allPlugins = [];
 
+        // Check if we're on the plugins page
+        const $pluginRows = $('#the-list tr');
+        if ($pluginRows.length === 0) {
+            console.log('Plugin Quick Search: No plugin list found, cannot scan plugins');
+            cacheStatus = 'error';
+            throw new Error('No plugin list available for scanning');
+        }
+
         // Scan all plugins (enhanced version of collectPluginData)
-        $('#the-list tr').each(function() {
+        $pluginRows.each(function() {
             const $row = $(this);
             const $pluginTitle = $row.find('.plugin-title strong');
             const pluginName = $pluginTitle.text().trim();
@@ -364,6 +408,14 @@
         console.log('Plugin Quick Search: Force rebuilding cache...');
         localStorage.removeItem(CACHE_KEY);
         localStorage.removeItem(CACHE_META_KEY);
+
+        // Check if we can actually rebuild the cache
+        if ($('#the-list tr').length === 0) {
+            const error = new Error('Cannot rebuild cache: not on plugins page. Please visit the Plugins page first.');
+            console.warn('Plugin Quick Search:', error.message);
+            return Promise.reject(error);
+        }
+
         return scanAndCachePlugins();
     }
 
@@ -640,6 +692,29 @@
         else if (new RegExp('\\b' + lowerQuery + '\\b', 'i').test(plugin.name)) {
             score = 300;
         }
+        // Multi-word query: check if all words are present
+        else if (lowerQuery.includes(' ')) {
+            const queryWords = lowerQuery.split(/\s+/).filter(word => word.length > 0);
+            const allWordsInName = queryWords.every(word => lowerName.includes(word));
+
+            if (allWordsInName) {
+                score = 250; // High score for multi-word matches
+                // Bonus for word order preservation
+                let lastIndex = -1;
+                let orderPreserved = true;
+                for (const word of queryWords) {
+                    const wordIndex = lowerName.indexOf(word, lastIndex + 1);
+                    if (wordIndex === -1 || wordIndex <= lastIndex) {
+                        orderPreserved = false;
+                        break;
+                    }
+                    lastIndex = wordIndex;
+                }
+                if (orderPreserved) {
+                    score += 50;
+                }
+            }
+        }
         // Name contains query (partial match)
         else if (lowerName.includes(lowerQuery)) {
             score = 100;
@@ -653,8 +728,17 @@
         }
 
         // Only check description if we have some score or no name match
-        if (score < 100 && plugin.descriptionLower.includes(lowerQuery)) {
-            score += 10;
+        if (score < 100) {
+            if (plugin.descriptionLower.includes(lowerQuery)) {
+                score += 10;
+            } else if (lowerQuery.includes(' ')) {
+                // Multi-word query in description
+                const queryWords = lowerQuery.split(/\s+/).filter(word => word.length > 0);
+                const allWordsInDesc = queryWords.every(word => plugin.descriptionLower.includes(word));
+                if (allWordsInDesc) {
+                    score += 15; // Slightly higher for multi-word description matches
+                }
+            }
         }
 
         // Use pre-calculated properties
@@ -734,12 +818,26 @@
 
         // Third pass: Contains matches (if we need more results)
         if (exactMatches.length + prefixMatches.length < MAX_DISPLAY_ITEMS) {
+            // Split query into words for multi-word matching
+            const queryWords = lowerQuery.split(/\s+/).filter(word => word.length > 0);
+
             for (let i = 0; i < searchPool.length; i++) {
                 const plugin = searchPool[i];
+
+                // Check for exact substring match first
                 const nameIncludes = plugin.nameLower.includes(lowerQuery);
                 const descIncludes = plugin.descriptionLower.includes(lowerQuery);
 
-                if ((nameIncludes || descIncludes) &&
+                // Check for multi-word match (all words present)
+                let allWordsInName = false;
+                let allWordsInDesc = false;
+
+                if (queryWords.length > 1) {
+                    allWordsInName = queryWords.every(word => plugin.nameLower.includes(word));
+                    allWordsInDesc = queryWords.every(word => plugin.descriptionLower.includes(word));
+                }
+
+                if ((nameIncludes || descIncludes || allWordsInName || allWordsInDesc) &&
                     !exactMatches.includes(plugin) &&
                     !prefixMatches.includes(plugin)) {
                     containsMatches.push(plugin);
@@ -1082,6 +1180,146 @@
         localStorage.removeItem(CACHE_KEY);
         localStorage.removeItem(CACHE_META_KEY);
         console.log('Plugin Quick Search: Cache cleared');
+    };
+
+    // Debug function to test multi-word search
+    window.pqsTestSearch = (query) => {
+        const lowerQuery = query.toLowerCase();
+        const queryWords = lowerQuery.split(/\s+/).filter(word => word.length > 0);
+
+        console.log('Testing search for:', query);
+        console.log('Query words:', queryWords);
+
+        const testPlugin = {
+            name: 'WP Mail SMTP',
+            nameLower: 'wp mail smtp',
+            description: 'The most popular WordPress SMTP plugin',
+            descriptionLower: 'the most popular wordpress smtp plugin'
+        };
+
+        // Test exact match
+        const exactMatch = testPlugin.nameLower === lowerQuery;
+        console.log('Exact match:', exactMatch);
+
+        // Test contains match
+        const containsMatch = testPlugin.nameLower.includes(lowerQuery);
+        console.log('Contains match:', containsMatch);
+
+        // Test multi-word match
+        const multiWordMatch = queryWords.length > 1 ?
+            queryWords.every(word => testPlugin.nameLower.includes(word)) : false;
+        console.log('Multi-word match:', multiWordMatch);
+
+        return { exactMatch, containsMatch, multiWordMatch };
+    };
+
+    // Comprehensive search test function
+    window.pqsRunSearchTests = () => {
+        console.log('=== Running Search Algorithm Tests ===');
+
+        const testCases = [
+            {
+                name: 'Anti-regression: WP SMTP → WP Mail SMTP',
+                query: 'wp smtp',
+                expectedPlugin: 'WP Mail SMTP',
+                shouldMatch: true
+            },
+            {
+                name: 'Exact match: woocommerce',
+                query: 'woocommerce',
+                expectedPlugin: 'WooCommerce',
+                shouldMatch: true
+            },
+            {
+                name: 'Multi-word: contact form',
+                query: 'contact form',
+                expectedPlugin: 'Contact Form 7',
+                shouldMatch: true
+            },
+            {
+                name: 'Fuzzy match: woocomerce (missing m)',
+                query: 'woocomerce',
+                expectedPlugin: 'WooCommerce',
+                shouldMatch: true
+            }
+        ];
+
+        testCases.forEach(testCase => {
+            console.log(`\n--- ${testCase.name} ---`);
+            const result = window.pqsTestSearch(testCase.query);
+            console.log('Expected to match:', testCase.shouldMatch);
+            console.log('Result:', result);
+        });
+
+        console.log('\n=== Search Tests Complete ===');
+    };
+
+    // Additional diagnostic functions for cache testing
+    window.pqsGetCacheInfo = () => {
+        try {
+            const cacheData = localStorage.getItem(CACHE_KEY);
+            const metaData = localStorage.getItem(CACHE_META_KEY);
+
+            if (!cacheData || !metaData) {
+                return { exists: false, error: 'Cache data not found' };
+            }
+
+            const plugins = JSON.parse(cacheData);
+            const meta = JSON.parse(metaData);
+
+            return {
+                exists: true,
+                pluginCount: plugins.length,
+                cacheSize: new Blob([cacheData]).size,
+                metaSize: new Blob([metaData]).size,
+                timestamp: meta.timestamp,
+                version: meta.version,
+                age: Date.now() - meta.timestamp,
+                isValid: isCacheValid(meta),
+                status: cacheStatus
+            };
+        } catch (error) {
+            return { exists: false, error: error.message };
+        }
+    };
+
+    window.pqsTestCacheIntegrity = () => {
+        try {
+            const cacheData = localStorage.getItem(CACHE_KEY);
+            const metaData = localStorage.getItem(CACHE_META_KEY);
+
+            if (!cacheData || !metaData) {
+                return { valid: false, error: 'Cache data not found' };
+            }
+
+            const plugins = JSON.parse(cacheData);
+            const meta = JSON.parse(metaData);
+
+            // Check if all required fields are present
+            const requiredFields = ['name', 'description', 'status', 'file'];
+            const missingFields = [];
+
+            plugins.forEach((plugin, index) => {
+                requiredFields.forEach(field => {
+                    if (!plugin.hasOwnProperty(field)) {
+                        missingFields.push(`Plugin ${index}: missing ${field}`);
+                    }
+                });
+            });
+
+            return {
+                valid: missingFields.length === 0,
+                pluginCount: plugins.length,
+                metaPluginCount: meta.pluginCount,
+                countMatch: plugins.length === meta.pluginCount,
+                missingFields: missingFields,
+                version: meta.version,
+                expectedVersion: CACHE_VERSION,
+                versionMatch: meta.version === CACHE_VERSION
+            };
+        } catch (error) {
+            return { valid: false, error: error.message };
+        }
     };
 
     // Create a red highlight box around an element
