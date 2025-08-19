@@ -7,9 +7,20 @@
     let allPlugins = [];
     let searchCache = new Map(); // Cache search results
     let debounceTimer = null;
-    const DEBOUNCE_DELAY = 150; // milliseconds
-    const MAX_SCORING_ITEMS = 100; // Stop scoring after this many matches
+    // Phase 2: Incremental filtering variables
+    let lastQuery = '';
+    let lastResults = [];
+    const DEBOUNCE_DELAY = 250; // milliseconds (Phase 1 optimization)
+    const MAX_SCORING_ITEMS = 20; // Phase 1: Stop scoring after this many matches (reduced from 100)
     const MAX_DISPLAY_ITEMS = 20; // Maximum items to display
+
+    // Default settings (will be overridden by PHP settings)
+    let highlightSettings = {
+        highlight_duration: 8000,  // 8 seconds
+        fade_duration: 2000,       // 2 seconds
+        highlight_color: '#ff0000', // Red
+        highlight_opacity: 1.0     // Full opacity
+    };
     
     // Initialize on document ready
     $(document).ready(function() {
@@ -24,10 +35,16 @@
         
         const loadTime = performance.now() - startTime;
         console.log(`Plugin Quick Search: Ready in ${loadTime.toFixed(2)}ms! Press Cmd/Ctrl+Shift+P to search`);
-        
-        // Log version info if available
-        if (typeof pqs_ajax !== 'undefined' && pqs_ajax.version) {
-            console.log('Plugin Quick Search Version:', pqs_ajax.version);
+
+        // Load settings from PHP if available
+        if (typeof pqs_ajax !== 'undefined') {
+            if (pqs_ajax.version) {
+                console.log('Plugin Quick Search Version:', pqs_ajax.version);
+            }
+            if (pqs_ajax.settings) {
+                highlightSettings = { ...highlightSettings, ...pqs_ajax.settings };
+                console.log('Plugin Quick Search: Loaded custom settings', highlightSettings);
+            }
         }
     });
     
@@ -185,10 +202,14 @@
         modalOpen = true;
         $('#pqs-overlay').addClass('active');
         $('#pqs-search-input').val('').focus();
-        
+
         // Clear cache when opening modal (optional - remove if you want persistent cache)
         searchCache.clear();
-        
+
+        // Phase 2: Reset incremental search state
+        lastQuery = '';
+        lastResults = [];
+
         // Show all plugins initially
         filterPlugins('');
     }
@@ -197,32 +218,61 @@
     function closeModal() {
         modalOpen = false;
         $('#pqs-overlay').removeClass('active');
-        
+
         // Cancel any pending search
         if (debounceTimer) {
             clearTimeout(debounceTimer);
             debounceTimer = null;
         }
-        
+
+        // Phase 2: Reset incremental search state
+        lastQuery = '';
+        lastResults = [];
+
         // Reset the plugin list to show all
         $('#the-list tr').show();
-        
+
         // Remove any existing highlight boxes
         removeHighlightBoxes();
     }
     
+    // Basic Levenshtein distance implementation
+    function levenshteinDistance(a, b) {
+        const matrix = Array.from({ length: a.length + 1 }, () =>
+            new Array(b.length + 1).fill(0)
+        );
+
+        for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+        for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+
+        for (let i = 1; i <= a.length; i++) {
+            for (let j = 1; j <= b.length; j++) {
+                const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j] + 1,
+                    matrix[i][j - 1] + 1,
+                    matrix[i - 1][j - 1] + cost
+                );
+            }
+        }
+
+        return matrix[a.length][b.length];
+    }
+
     // Optimized relevance scoring with early exits
     function calculateRelevanceScore(plugin, lowerQuery) {
         // Use pre-cached lowercase strings
         const lowerName = plugin.nameLower;
-        
+        const distance = levenshteinDistance(lowerName, lowerQuery);
+        const threshold = Math.ceil(Math.min(lowerName.length, lowerQuery.length) * 0.4);
+
         let score = 0;
-        
+
         // Exact match of full name (highest priority)
         if (lowerName === lowerQuery) {
             return 1000; // Early exit for exact match
         }
-        
+
         // Name starts with query (very high priority)
         if (lowerName.startsWith(lowerQuery)) {
             score = 500;
@@ -242,84 +292,159 @@
             const position = lowerName.indexOf(lowerQuery);
             score += Math.max(50 - position, 0);
         }
-        
+        // Fuzzy match using Levenshtein distance
+        else if (distance <= threshold) {
+            score = 120 - distance * 20;
+        }
+
         // Only check description if we have some score or no name match
         if (score < 100 && plugin.descriptionLower.includes(lowerQuery)) {
             score += 10;
         }
-        
+
         // Use pre-calculated properties
         if (plugin.wordCount > 3) {
             score -= (plugin.wordCount - 3) * 5;
         }
-        
+
         if (!plugin.hasForIn) {
             score += 20;
         }
-        
+
+        // Bias towards the main WooCommerce plugin
+        if (lowerName === 'woocommerce' && (lowerQuery.includes('woo') || distance <= threshold)) {
+            score += 500;
+        }
+
         return score;
     }
     
-    // Filter plugins with caching and optimizations
+    // Filter plugins with Phase 2 optimizations: Incremental filtering + Tiered search
     function filterPlugins(query) {
         selectedIndex = 0;
-        
+
         // Early exit for empty query
         if (query === '') {
             filteredPlugins = allPlugins.slice(0, MAX_DISPLAY_ITEMS);
+            lastQuery = '';
+            lastResults = [];
             renderResults();
             return;
         }
-        
+
         const lowerQuery = query.toLowerCase();
-        
+
         // Check cache first
         if (searchCache.has(lowerQuery)) {
             filteredPlugins = searchCache.get(lowerQuery);
+            lastQuery = lowerQuery;
+            lastResults = [...filteredPlugins];
             renderResults();
             return;
         }
-        
-        // First pass: Find matching plugins (limit to MAX_SCORING_ITEMS for performance)
-        const matchingPlugins = [];
-        let matchCount = 0;
-        
-        for (let i = 0; i < allPlugins.length && matchCount < MAX_SCORING_ITEMS; i++) {
-            const plugin = allPlugins[i];
-            // Use pre-cached lowercase strings
-            if (plugin.nameLower.includes(lowerQuery) || 
-                plugin.descriptionLower.includes(lowerQuery)) {
-                matchingPlugins.push(plugin);
-                matchCount++;
+
+        // Phase 2: Incremental filtering - if query is extension of previous query
+        let searchPool = allPlugins;
+        const isIncrementalSearch = lastQuery && lowerQuery.startsWith(lastQuery) && lastResults.length > 0;
+
+        if (isIncrementalSearch) {
+            // Search only within previous results for better performance
+            searchPool = lastResults;
+        }
+
+        // Phase 2: Tiered search strategy
+        const exactMatches = [];
+        const prefixMatches = [];
+        const containsMatches = [];
+        const fuzzyMatches = [];
+
+        // First pass: Exact matches
+        for (let i = 0; i < searchPool.length; i++) {
+            const plugin = searchPool[i];
+            if (plugin.nameLower === lowerQuery) {
+                exactMatches.push(plugin);
             }
         }
-        
+
+        // Second pass: Prefix matches (if we need more results)
+        if (exactMatches.length < MAX_DISPLAY_ITEMS) {
+            for (let i = 0; i < searchPool.length; i++) {
+                const plugin = searchPool[i];
+                if (plugin.nameLower.startsWith(lowerQuery) && !exactMatches.includes(plugin)) {
+                    prefixMatches.push(plugin);
+                    if (exactMatches.length + prefixMatches.length >= MAX_DISPLAY_ITEMS) break;
+                }
+            }
+        }
+
+        // Third pass: Contains matches (if we need more results)
+        if (exactMatches.length + prefixMatches.length < MAX_DISPLAY_ITEMS) {
+            for (let i = 0; i < searchPool.length; i++) {
+                const plugin = searchPool[i];
+                const nameIncludes = plugin.nameLower.includes(lowerQuery);
+                const descIncludes = plugin.descriptionLower.includes(lowerQuery);
+
+                if ((nameIncludes || descIncludes) &&
+                    !exactMatches.includes(plugin) &&
+                    !prefixMatches.includes(plugin)) {
+                    containsMatches.push(plugin);
+                    if (exactMatches.length + prefixMatches.length + containsMatches.length >= MAX_DISPLAY_ITEMS) break;
+                }
+            }
+        }
+
+        let matchingPlugins = [...exactMatches, ...prefixMatches, ...containsMatches];
+
+        // Final pass: Fuzzy matching (only if we have fewer than 5 results)
+        if (matchingPlugins.length < 5) {
+            for (let i = 0; i < searchPool.length && fuzzyMatches.length < (MAX_DISPLAY_ITEMS - matchingPlugins.length); i++) {
+                const plugin = searchPool[i];
+
+                // Skip if already in other matches
+                if (matchingPlugins.includes(plugin)) continue;
+
+                const distance = levenshteinDistance(plugin.nameLower, lowerQuery);
+                const threshold = Math.ceil(Math.min(plugin.nameLower.length, lowerQuery.length) * 0.4);
+                if (distance <= threshold) {
+                    fuzzyMatches.push(plugin);
+                }
+            }
+
+            matchingPlugins = [...matchingPlugins, ...fuzzyMatches];
+        }
+
         // If no matches found, update and exit early
         if (matchingPlugins.length === 0) {
             filteredPlugins = [];
+            lastQuery = lowerQuery;
+            lastResults = [];
             searchCache.set(lowerQuery, filteredPlugins);
             renderResults();
             return;
         }
-        
+
         // Calculate relevance scores
         const scoredPlugins = matchingPlugins.map(plugin => ({
             ...plugin,
             score: calculateRelevanceScore(plugin, lowerQuery)
         }));
-        
+
         // Sort by relevance score (highest first)
         scoredPlugins.sort((a, b) => b.score - a.score);
-        
+
         // Limit results for display
         const limitedResults = scoredPlugins.slice(0, MAX_DISPLAY_ITEMS);
-        
+
         // Remove score property and assign to filteredPlugins
         filteredPlugins = limitedResults.map(({ score, ...plugin }) => plugin);
-        
+
+        // Update incremental search state
+        lastQuery = lowerQuery;
+        lastResults = [...filteredPlugins];
+
         // Cache the results
         searchCache.set(lowerQuery, filteredPlugins);
-        
+
         renderResults();
     }
     
@@ -485,18 +610,19 @@
         // Create the highlight box
         const $highlightBox = $('<div class="pqs-highlight-box"></div>');
         
-        // Style the highlight box
+        // Style the highlight box with user settings
         $highlightBox.css({
             position: 'absolute',
             top: offset.top - 10,
             left: offset.left - 10,
             width: width + 20,
             height: height + 20,
-            border: '10px solid red',
+            border: `10px solid ${highlightSettings.highlight_color}`,
             borderRadius: '4px',
             pointerEvents: 'none',
             zIndex: 9999,
             boxSizing: 'border-box',
+            opacity: highlightSettings.highlight_opacity,
             animation: 'pqsPulse 2s ease-in-out infinite'
         });
         
@@ -505,16 +631,29 @@
         
         // Add pulse animation styles if not already present
         if (!$('#pqs-highlight-styles').length) {
+            // Convert hex color to RGB for box-shadow
+            const hexToRgb = (hex) => {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? {
+                    r: parseInt(result[1], 16),
+                    g: parseInt(result[2], 16),
+                    b: parseInt(result[3], 16)
+                } : {r: 255, g: 0, b: 0}; // fallback to red
+            };
+
+            const rgb = hexToRgb(highlightSettings.highlight_color);
+            const baseOpacity = highlightSettings.highlight_opacity;
+
             const styles = `
                 <style id="pqs-highlight-styles">
                     @keyframes pqsPulse {
                         0%, 100% {
-                            opacity: 1;
-                            box-shadow: 0 0 20px rgba(255, 0, 0, 0.5);
+                            opacity: ${baseOpacity};
+                            box-shadow: 0 0 20px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${baseOpacity * 0.5});
                         }
                         50% {
-                            opacity: 0.8;
-                            box-shadow: 0 0 40px rgba(255, 0, 0, 0.8);
+                            opacity: ${baseOpacity * 0.8};
+                            box-shadow: 0 0 40px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${baseOpacity * 0.8});
                         }
                     }
                     .pqs-highlight-box {
@@ -559,12 +698,12 @@
                 // Create the highlight box after scrolling is complete
                 createHighlightBox($selectedElement);
                 
-                // Optionally remove the highlight after a few seconds
+                // Remove the highlight after user-configured duration
                 setTimeout(function() {
-                    $('.pqs-highlight-box').fadeOut(1000, function() {
+                    $('.pqs-highlight-box').fadeOut(highlightSettings.fade_duration, function() {
                         $(this).remove();
                     });
-                }, 5000); // Remove after 5 seconds
+                }, highlightSettings.highlight_duration);
             });
         }
     }
