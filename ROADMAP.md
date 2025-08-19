@@ -28,6 +28,21 @@ Validate DOM elements exist before operations to prevent null reference errors.
 - **User Experience**: Seamless navigation from search → settings without manual clicking
 - **Implementation Complexity**: Medium (requires settings link detection and URL extraction)
 
+### **Cache Management & Diagnostics** - **Status: Done**
+- **Cache Status Menu Item** - Added "KISS PQS Cache Status" under Plugins menu with red/green indicator
+- **Comprehensive Self-Test Suite** - Multi-category testing system with cache, search, and system tests
+- **Real-time Status Updates** - Live cache status with plugin version number display
+- **Cache Diagnostic Functions** - Test cache building, existence checks, and read/write validation
+- **Search Algorithm Testing** - Anti-regression tests for multi-word search, exact match, and fuzzy search
+- **API for Other Plugins** - Documented JavaScript API for third-party cache integration
+- **Server-side Diagnostics** - PHP-based cache status checking and environment validation
+
+### **Search Algorithm Improvements** - **Status: Done**
+- **Multi-word Search Fix** - Fixed regression where "WP SMTP" didn't match "WP Mail SMTP"
+- **Enhanced Word Matching** - Queries split into words with all-words-present matching
+- **Improved Scoring** - Multi-word matches get priority scoring with word order bonuses
+- **Anti-regression Testing** - Automated tests to prevent search functionality regressions
+
 ---
 
 Looking at your Plugin Quick Search code, I can identify several performance bottlenecks that are causing the laggy typing experience:
