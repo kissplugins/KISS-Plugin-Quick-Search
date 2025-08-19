@@ -74,6 +74,11 @@
                 cacheStatus = 'fresh';
                 console.log('Plugin Quick Search: Using cached data');
 
+                // Fire cache status event
+                document.dispatchEvent(new CustomEvent('pqs-cache-status-changed', {
+                    detail: { status: 'fresh', source: 'cached' }
+                }));
+
                 // Re-associate DOM elements with cached data
                 associateDOMElements();
 
@@ -83,11 +88,23 @@
                 // Cache miss or expired - scan fresh
                 cacheStatus = 'stale';
                 console.log('Plugin Quick Search: Cache expired, scanning fresh data...');
+
+                // Fire cache status event
+                document.dispatchEvent(new CustomEvent('pqs-cache-status-changed', {
+                    detail: { status: 'stale', source: 'expired' }
+                }));
+
                 await scanAndCachePlugins();
             }
         } catch (error) {
             console.error('Plugin Quick Search: Cache error, falling back to fresh scan:', error);
             cacheStatus = 'error';
+
+            // Fire cache status event
+            document.dispatchEvent(new CustomEvent('pqs-cache-status-changed', {
+                detail: { status: 'error', source: 'exception', error: error.message }
+            }));
+
             await scanAndCachePlugins();
         }
     }
@@ -215,6 +232,15 @@
 
             cacheStatus = 'fresh';
             console.log(`Plugin Quick Search: Cached ${allPlugins.length} plugins in ${meta.scanTime.toFixed(2)}ms`);
+
+            // Fire cache rebuilt event for other plugins
+            document.dispatchEvent(new CustomEvent('pqs-cache-rebuilt', {
+                detail: {
+                    pluginCount: allPlugins.length,
+                    scanTime: meta.scanTime,
+                    timestamp: meta.timestamp
+                }
+            }));
         } catch (error) {
             console.warn('Plugin Quick Search: Failed to cache data:', error);
             // Continue without caching
