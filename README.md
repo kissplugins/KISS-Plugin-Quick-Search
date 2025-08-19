@@ -16,6 +16,7 @@ A powerful yet lightweight WordPress plugin that adds intelligent search capabil
   - Name prefix matches get very high priority
   - Whole word matches in names get high priority
   - Partial matches are ranked by position and context
+- **Fuzzy Matching**: Levenshtein distance allows small typos (e.g., `wocomm` → `woocommerce`)
 - **Visual Match Indicators**:
   - ⭐ Star icon for exact matches
   - Special highlighting for strong matches
@@ -148,7 +149,7 @@ No warranty; use at your own risk.
 
 ## Version
 
-1.0.6
+1.0.7
 
 ## Author
 

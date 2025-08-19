@@ -225,18 +225,43 @@
         removeHighlightBoxes();
     }
     
+    // Basic Levenshtein distance implementation
+    function levenshteinDistance(a, b) {
+        const matrix = Array.from({ length: a.length + 1 }, () =>
+            new Array(b.length + 1).fill(0)
+        );
+
+        for (let i = 0; i <= a.length; i++) matrix[i][0] = i;
+        for (let j = 0; j <= b.length; j++) matrix[0][j] = j;
+
+        for (let i = 1; i <= a.length; i++) {
+            for (let j = 1; j <= b.length; j++) {
+                const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j] + 1,
+                    matrix[i][j - 1] + 1,
+                    matrix[i - 1][j - 1] + cost
+                );
+            }
+        }
+
+        return matrix[a.length][b.length];
+    }
+
     // Optimized relevance scoring with early exits
     function calculateRelevanceScore(plugin, lowerQuery) {
         // Use pre-cached lowercase strings
         const lowerName = plugin.nameLower;
-        
+        const distance = levenshteinDistance(lowerName, lowerQuery);
+        const threshold = Math.ceil(Math.min(lowerName.length, lowerQuery.length) * 0.4);
+
         let score = 0;
-        
+
         // Exact match of full name (highest priority)
         if (lowerName === lowerQuery) {
             return 1000; // Early exit for exact match
         }
-        
+
         // Name starts with query (very high priority)
         if (lowerName.startsWith(lowerQuery)) {
             score = 500;
@@ -256,21 +281,30 @@
             const position = lowerName.indexOf(lowerQuery);
             score += Math.max(50 - position, 0);
         }
-        
+        // Fuzzy match using Levenshtein distance
+        else if (distance <= threshold) {
+            score = 120 - distance * 20;
+        }
+
         // Only check description if we have some score or no name match
         if (score < 100 && plugin.descriptionLower.includes(lowerQuery)) {
             score += 10;
         }
-        
+
         // Use pre-calculated properties
         if (plugin.wordCount > 3) {
             score -= (plugin.wordCount - 3) * 5;
         }
-        
+
         if (!plugin.hasForIn) {
             score += 20;
         }
-        
+
+        // Bias towards the main WooCommerce plugin
+        if (lowerName === 'woocommerce' && (lowerQuery.includes('woo') || distance <= threshold)) {
+            score += 500;
+        }
+
         return score;
     }
     
@@ -300,14 +334,23 @@
         
         for (let i = 0; i < allPlugins.length && matchCount < MAX_SCORING_ITEMS; i++) {
             const plugin = allPlugins[i];
-            // Use pre-cached lowercase strings
-            if (plugin.nameLower.includes(lowerQuery) || 
-                plugin.descriptionLower.includes(lowerQuery)) {
+            const nameIncludes = plugin.nameLower.includes(lowerQuery);
+            const descIncludes = plugin.descriptionLower.includes(lowerQuery);
+
+            if (nameIncludes || descIncludes) {
+                matchingPlugins.push(plugin);
+                matchCount++;
+                continue;
+            }
+
+            const distance = levenshteinDistance(plugin.nameLower, lowerQuery);
+            const threshold = Math.ceil(Math.min(plugin.nameLower.length, lowerQuery.length) * 0.4);
+            if (distance <= threshold) {
                 matchingPlugins.push(plugin);
                 matchCount++;
             }
         }
-        
+
         // If no matches found, update and exit early
         if (matchingPlugins.length === 0) {
             filteredPlugins = [];
