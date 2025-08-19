@@ -64,10 +64,36 @@ const scoredPlugins = matchingPlugins.map(plugin => ({
    - Final pass: fuzzy matching (only if needed)
 
 ### Phase 3: Advanced Optimizations
+
 1. **Virtual scrolling** for the results list
+   - **What it is**: Only renders visible items in the DOM, creating/destroying elements as user scrolls
+   - **Benefits**: Handles thousands of plugins without performance degradation
+   - **Implementation**: Track scroll position, calculate visible range, render only those items
+   - **Complexity**: ⭐⭐⭐⭐ (High) - Requires careful math for positioning, scroll event handling, and DOM management
+   - **When needed**: 500+ plugins or noticeable scroll lag
+
 2. **Web Workers** for fuzzy matching calculations
+   - **What it is**: Move search/scoring calculations to background thread to avoid blocking UI
+   - **Benefits**: Keeps interface responsive during complex search operations
+   - **Implementation**: Transfer plugin data to worker, perform matching, return scored results
+   - **Complexity**: ⭐⭐⭐ (Medium-High) - Worker setup, data serialization, async communication patterns
+   - **When needed**: Search takes >50ms or causes UI freezing
+
 3. **Trie data structure** for prefix matching
+   - **What it is**: Tree structure where each node represents a character, enabling ultra-fast prefix searches
+   - **Benefits**: O(m) search time where m = query length, regardless of dataset size
+   - **Implementation**: Build trie from plugin names, traverse nodes for prefix matches
+   - **Complexity**: ⭐⭐⭐⭐⭐ (Very High) - Complex data structure, memory management, Unicode handling
+   - **When needed**: 1000+ plugins or prefix search is primary use case
+
 4. **Result recycling** instead of full DOM rebuilds
+   - **What it is**: Reuse existing DOM elements by updating content instead of destroying/creating
+   - **Benefits**: Reduces garbage collection, maintains scroll position, smoother animations
+   - **Implementation**: Pool of result elements, update text/attributes instead of innerHTML
+   - **Complexity**: ⭐⭐ (Medium) - Element pooling logic, state management, event handler persistence
+   - **When needed**: Frequent searches cause visible DOM rebuilding lag
+
+   Augment assessment: PSR4 is still not needed even with all 4 optimizations.
 
 ## Expected Performance Impact
 - **Current**: ~200-500ms lag on large plugin lists
