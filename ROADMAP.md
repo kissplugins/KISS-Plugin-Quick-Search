@@ -1,6 +1,6 @@
 ## New Feature Requests
 
-### **Quick Settings Navigation**
+### **Quick Settings Navigation** - **Status: Done**
 - **Shift + Enter** on selected plugin to navigate directly to its Settings page
 - **Technical Approach**: Detect "Settings" links in plugin row actions during data collection
 - **Fallback Strategy**: For plugins without settings links, show notification "No settings page found"

@@ -69,24 +69,31 @@
                 }
             }
 
-            // Determine activation status efficiently (upfront collection)
+            // Determine activation status and settings link efficiently (upfront collection)
             let isActive = false;
+            let settingsUrl = null;
 
-            // WordPress uses these methods to indicate active plugins:
-            // 1. CSS class 'active' on the tr element
-            // 2. Presence of 'Deactivate' link vs 'Activate' link
+            // Scan row actions for both activation status and settings link
+            const $actionLinks = $row.find('.row-actions a');
+            $actionLinks.each(function() {
+                const $link = $(this);
+                const linkText = $link.text().toLowerCase().trim();
+
+                // Check for activation status
+                if (linkText.includes('deactivate')) {
+                    isActive = true;
+                }
+
+                // Check for settings/configure link (broader compatibility)
+                if (linkText === 'settings' || linkText.includes('setting') ||
+                    linkText === 'configure' || linkText.includes('configur')) {
+                    settingsUrl = $link.attr('href');
+                }
+            });
+
+            // WordPress uses CSS class 'active' as primary indicator
             if ($row.hasClass('active')) {
                 isActive = true;
-            } else {
-                // Fallback: check for Deactivate vs Activate link
-                const $actionLinks = $row.find('.row-actions a');
-                $actionLinks.each(function() {
-                    const linkText = $(this).text().toLowerCase();
-                    if (linkText.includes('deactivate')) {
-                        isActive = true;
-                        return false; // break out of each loop
-                    }
-                });
             }
 
             // Pre-cache lowercase strings for faster searching
@@ -97,6 +104,7 @@
                 descriptionLower: pluginDesc.toLowerCase(), // Pre-cached
                 version: version,
                 isActive: isActive, // Activation status
+                settingsUrl: settingsUrl, // Settings page URL (null if no settings)
                 element: $row[0],
                 // Pre-calculate some properties for scoring
                 wordCount: pluginName.split(/\s+/).length,
@@ -125,6 +133,9 @@
                         </span>
                         <span class="pqs-help-item">
                             <span class="pqs-kbd">Enter</span> Filter
+                        </span>
+                        <span class="pqs-help-item">
+                            <span class="pqs-kbd">Shift</span>+<span class="pqs-kbd">Enter</span> Settings
                         </span>
                         <span class="pqs-help-item">
                             <span class="pqs-kbd">Esc</span> Close
@@ -190,7 +201,13 @@
                     clearTimeout(debounceTimer);
                     debounceTimer = null;
                 }
-                selectCurrentResult();
+
+                // Check for Shift+Enter (Settings navigation)
+                if (e.shiftKey) {
+                    navigateToSettings();
+                } else {
+                    selectCurrentResult();
+                }
             }
         });
         
@@ -611,6 +628,39 @@
                     .pqs-loading {
                         opacity: 0.5;
                     }
+                    .pqs-notification {
+                        position: absolute;
+                        bottom: 20px;
+                        left: 50%;
+                        transform: translateX(-50%);
+                        padding: 10px 20px;
+                        border-radius: 6px;
+                        font-size: 14px;
+                        font-weight: 500;
+                        z-index: 10001;
+                        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                        animation: pqs-slide-up 0.3s ease-out;
+                    }
+                    .pqs-notification-success {
+                        background: #d4edda;
+                        color: #155724;
+                        border: 1px solid #c3e6cb;
+                    }
+                    .pqs-notification-warning {
+                        background: #fff3cd;
+                        color: #856404;
+                        border: 1px solid #ffeaa7;
+                    }
+                    @keyframes pqs-slide-up {
+                        from {
+                            opacity: 0;
+                            transform: translateX(-50%) translateY(20px);
+                        }
+                        to {
+                            opacity: 1;
+                            transform: translateX(-50%) translateY(0);
+                        }
+                    }
                 </style>
             `;
             $('head').append(styles);
@@ -648,7 +698,49 @@
             }
         }
     }
-    
+
+    // Navigate to plugin settings page (Shift+Enter functionality)
+    function navigateToSettings() {
+        if (filteredPlugins.length === 0) return;
+
+        const selectedPlugin = filteredPlugins[selectedIndex];
+
+        if (selectedPlugin.settingsUrl) {
+            // Plugin has a settings page - navigate to it
+            console.log(`Plugin Quick Search: Navigating to settings for ${selectedPlugin.name}`);
+            window.location.href = selectedPlugin.settingsUrl;
+        } else {
+            // Plugin doesn't have a settings page - show notification
+            showSettingsNotification(selectedPlugin.name, false);
+        }
+    }
+
+    // Show notification for settings navigation
+    function showSettingsNotification(pluginName, hasSettings) {
+        // Remove any existing notifications
+        $('.pqs-notification').remove();
+
+        const message = hasSettings
+            ? `Opening settings for ${pluginName}...`
+            : `${pluginName} doesn't have a settings page`;
+
+        const notificationClass = hasSettings ? 'pqs-notification-success' : 'pqs-notification-warning';
+
+        const notification = $(`
+            <div class="pqs-notification ${notificationClass}">
+                ${escapeHtml(message)}
+            </div>
+        `);
+
+        // Add to modal
+        $('#pqs-overlay .pqs-modal').append(notification);
+
+        // Auto-remove after 3 seconds
+        setTimeout(() => {
+            notification.fadeOut(300, () => notification.remove());
+        }, 3000);
+    }
+
     // Create a red highlight box around an element
     function createHighlightBox($element) {
         // Remove any existing highlight boxes first
