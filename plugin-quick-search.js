@@ -55,9 +55,9 @@
             const $pluginTitle = $row.find('.plugin-title strong');
             const pluginName = $pluginTitle.text().trim();
             const pluginDesc = $row.find('.plugin-description').text().trim();
-            
+
             if (!pluginName) return; // Early exit if no name
-            
+
             // Extract version number from the plugin row
             let version = '';
             const $versionSpan = $row.find('.plugin-version-author-uri');
@@ -68,7 +68,34 @@
                     version = versionMatch[1];
                 }
             }
-            
+
+            // Determine activation status and settings link efficiently (upfront collection)
+            let isActive = false;
+            let settingsUrl = null;
+
+            // Scan row actions for both activation status and settings link
+            const $actionLinks = $row.find('.row-actions a');
+            $actionLinks.each(function() {
+                const $link = $(this);
+                const linkText = $link.text().toLowerCase().trim();
+
+                // Check for activation status
+                if (linkText.includes('deactivate')) {
+                    isActive = true;
+                }
+
+                // Check for settings/configure link (broader compatibility)
+                if (linkText === 'settings' || linkText.includes('setting') ||
+                    linkText === 'configure' || linkText.includes('configur')) {
+                    settingsUrl = $link.attr('href');
+                }
+            });
+
+            // WordPress uses CSS class 'active' as primary indicator
+            if ($row.hasClass('active')) {
+                isActive = true;
+            }
+
             // Pre-cache lowercase strings for faster searching
             allPlugins.push({
                 name: pluginName,
@@ -76,6 +103,8 @@
                 description: pluginDesc,
                 descriptionLower: pluginDesc.toLowerCase(), // Pre-cached
                 version: version,
+                isActive: isActive, // Activation status
+                settingsUrl: settingsUrl, // Settings page URL (null if no settings)
                 element: $row[0],
                 // Pre-calculate some properties for scoring
                 wordCount: pluginName.split(/\s+/).length,
@@ -104,6 +133,9 @@
                         </span>
                         <span class="pqs-help-item">
                             <span class="pqs-kbd">Enter</span> Filter
+                        </span>
+                        <span class="pqs-help-item">
+                            <span class="pqs-kbd">Shift</span>+<span class="pqs-kbd">Enter</span> Settings
                         </span>
                         <span class="pqs-help-item">
                             <span class="pqs-kbd">Esc</span> Close
@@ -169,7 +201,13 @@
                     clearTimeout(debounceTimer);
                     debounceTimer = null;
                 }
-                selectCurrentResult();
+
+                // Check for Shift+Enter (Settings navigation)
+                if (e.shiftKey) {
+                    navigateToSettings();
+                } else {
+                    selectCurrentResult();
+                }
             }
         });
         
@@ -478,17 +516,23 @@
             
             // Show version for the first result
             const showVersion = index === 0 && plugin.version;
-            
+
             const classes = ['pqs-result-item'];
             if (index === selectedIndex) classes.push('selected');
             if (isExactMatch) classes.push('exact-match');
             else if (isStrongMatch) classes.push('strong-match');
-            
+            if (plugin.isActive) classes.push('active-plugin');
+
+            // Determine status display
+            const statusText = plugin.isActive ? 'Active' : 'Inactive';
+            const statusClass = plugin.isActive ? 'pqs-status-active' : 'pqs-status-inactive';
+
             html += `
                 <div class="${classes.join(' ')}" data-index="${index}">
                     <div class="pqs-plugin-name">
                         ${isExactMatch ? '⭐ ' : ''}${escapeHtml(plugin.name)}
                         ${showVersion ? `<span class="pqs-version">v${escapeHtml(plugin.version)}</span>` : ''}
+                        <span class="pqs-status ${statusClass}">${statusText}</span>
                     </div>
                     ${plugin.description ? `<div class="pqs-plugin-desc">${escapeHtml(plugin.description)}</div>` : ''}
                 </div>
@@ -549,6 +593,31 @@
                         background: rgba(255, 255, 255, 0.2);
                         color: #fff;
                     }
+                    .pqs-status {
+                        display: inline-block;
+                        margin-left: 8px;
+                        padding: 2px 8px;
+                        border-radius: 12px;
+                        font-size: 11px;
+                        font-weight: 600;
+                        text-transform: uppercase;
+                        letter-spacing: 0.5px;
+                    }
+                    .pqs-status-active {
+                        background: #d4edda;
+                        color: #155724;
+                        border: 1px solid #c3e6cb;
+                    }
+                    .pqs-status-inactive {
+                        background: #f8d7da;
+                        color: #721c24;
+                        border: 1px solid #f5c6cb;
+                    }
+                    .pqs-result-item.selected .pqs-status {
+                        background: rgba(255, 255, 255, 0.9);
+                        color: #333;
+                        border-color: rgba(255, 255, 255, 0.5);
+                    }
                     .pqs-result-item.exact-match .pqs-plugin-name {
                         color: #0a4b78;
                         font-weight: 700;
@@ -558,6 +627,39 @@
                     }
                     .pqs-loading {
                         opacity: 0.5;
+                    }
+                    .pqs-notification {
+                        position: absolute;
+                        bottom: 20px;
+                        left: 50%;
+                        transform: translateX(-50%);
+                        padding: 10px 20px;
+                        border-radius: 6px;
+                        font-size: 14px;
+                        font-weight: 500;
+                        z-index: 10001;
+                        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                        animation: pqs-slide-up 0.3s ease-out;
+                    }
+                    .pqs-notification-success {
+                        background: #d4edda;
+                        color: #155724;
+                        border: 1px solid #c3e6cb;
+                    }
+                    .pqs-notification-warning {
+                        background: #fff3cd;
+                        color: #856404;
+                        border: 1px solid #ffeaa7;
+                    }
+                    @keyframes pqs-slide-up {
+                        from {
+                            opacity: 0;
+                            transform: translateX(-50%) translateY(20px);
+                        }
+                        to {
+                            opacity: 1;
+                            transform: translateX(-50%) translateY(0);
+                        }
                     }
                 </style>
             `;
@@ -596,7 +698,49 @@
             }
         }
     }
-    
+
+    // Navigate to plugin settings page (Shift+Enter functionality)
+    function navigateToSettings() {
+        if (filteredPlugins.length === 0) return;
+
+        const selectedPlugin = filteredPlugins[selectedIndex];
+
+        if (selectedPlugin.settingsUrl) {
+            // Plugin has a settings page - navigate to it
+            console.log(`Plugin Quick Search: Navigating to settings for ${selectedPlugin.name}`);
+            window.location.href = selectedPlugin.settingsUrl;
+        } else {
+            // Plugin doesn't have a settings page - show notification
+            showSettingsNotification(selectedPlugin.name, false);
+        }
+    }
+
+    // Show notification for settings navigation
+    function showSettingsNotification(pluginName, hasSettings) {
+        // Remove any existing notifications
+        $('.pqs-notification').remove();
+
+        const message = hasSettings
+            ? `Opening settings for ${pluginName}...`
+            : `${pluginName} doesn't have a settings page`;
+
+        const notificationClass = hasSettings ? 'pqs-notification-success' : 'pqs-notification-warning';
+
+        const notification = $(`
+            <div class="pqs-notification ${notificationClass}">
+                ${escapeHtml(message)}
+            </div>
+        `);
+
+        // Add to modal
+        $('#pqs-overlay .pqs-modal').append(notification);
+
+        // Auto-remove after 3 seconds
+        setTimeout(() => {
+            notification.fadeOut(300, () => notification.remove());
+        }, 3000);
+    }
+
     // Create a red highlight box around an element
     function createHighlightBox($element) {
         // Remove any existing highlight boxes first

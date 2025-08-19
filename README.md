@@ -57,7 +57,8 @@ A powerful yet lightweight WordPress plugin that adds intelligent search capabil
 3. Type to search plugin names or descriptions
 4. Use `↑↓` arrow keys to navigate results
 5. Press `Enter` to filter the plugins list and highlight the selected plugin
-6. Press `Esc` to close the modal and return to full plugin list
+6. **NEW**: Press `Shift+Enter` to go directly to the selected plugin's settings page
+7. Press `Esc` to close the modal and return to full plugin list
 
 ### Search Tips
 - **Exact matches** are marked with ⭐ and appear first
@@ -70,8 +71,16 @@ A powerful yet lightweight WordPress plugin that adds intelligent search capabil
 - `Cmd+Shift+P` / `Ctrl+Shift+P`: Toggle search modal
 - `↑` / `↓`: Navigate through search results
 - `Enter`: Select current result and filter plugins
+- `Shift+Enter`: Navigate directly to selected plugin's settings/configuration page
 - `Esc`: Close modal and show all plugins
 - Click outside modal: Close modal
+
+### Quick Settings Navigation
+The plugin can automatically detect and navigate to plugin settings pages:
+- Press `Shift+Enter` on any selected plugin to go directly to its settings
+- Supports plugins with "Settings", "Configure", or "Configuration" links
+- Shows helpful notifications for plugins without settings pages
+- Works seamlessly with the search and navigation system
 
 ## Settings
 
