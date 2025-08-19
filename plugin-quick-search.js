@@ -15,7 +15,8 @@
     const MAX_DISPLAY_ITEMS = 20; // Maximum items to display
 
     // Default settings (will be overridden by PHP settings)
-    let highlightSettings = {
+    let pluginSettings = {
+        keyboard_shortcut: 'cmd_shift_p', // cmd_shift_p or cmd_k
         highlight_duration: 8000,  // 8 seconds
         fade_duration: 2000,       // 2 seconds
         highlight_color: '#ff0000', // Red
@@ -33,19 +34,20 @@
         createModal();
         bindKeyboardShortcut();
         
-        const loadTime = performance.now() - startTime;
-        console.log(`Plugin Quick Search: Ready in ${loadTime.toFixed(2)}ms! Press Cmd/Ctrl+Shift+P to search`);
-
         // Load settings from PHP if available
         if (typeof pqs_ajax !== 'undefined') {
             if (pqs_ajax.version) {
                 console.log('Plugin Quick Search Version:', pqs_ajax.version);
             }
             if (pqs_ajax.settings) {
-                highlightSettings = { ...highlightSettings, ...pqs_ajax.settings };
-                console.log('Plugin Quick Search: Loaded custom settings', highlightSettings);
+                pluginSettings = { ...pluginSettings, ...pqs_ajax.settings };
+                console.log('Plugin Quick Search: Loaded custom settings', pluginSettings);
             }
         }
+
+        const loadTime = performance.now() - startTime;
+        const shortcutText = getShortcutDisplayText();
+        console.log(`Plugin Quick Search: Ready in ${loadTime.toFixed(2)}ms! Press ${shortcutText} to search`);
     });
     
     // Collect plugin data from the page with pre-cached lowercase strings
@@ -141,7 +143,7 @@
                             <span class="pqs-kbd">Esc</span> Close
                         </span>
                         <span class="pqs-help-item">
-                            <span class="pqs-kbd">Cmd/Ctrl</span>+<span class="pqs-kbd">Shift</span>+<span class="pqs-kbd">P</span> Toggle
+                            <span class="pqs-kbd">${getShortcutDisplayText()}</span> Toggle
                         </span>
                     </div>
                 </div>
@@ -151,12 +153,32 @@
         $('body').append(modalHTML);
     }
     
+    // Get shortcut display text for UI
+    function getShortcutDisplayText() {
+        if (pluginSettings.keyboard_shortcut === 'cmd_k') {
+            return 'Cmd/Ctrl+K';
+        }
+        return 'Cmd/Ctrl+Shift+P';
+    }
+
+    // Check if current key combination matches the configured shortcut
+    function isShortcutPressed(e) {
+        if (pluginSettings.keyboard_shortcut === 'cmd_k') {
+            // Cmd/Ctrl + K
+            return (e.metaKey || e.ctrlKey) && !e.shiftKey &&
+                   (e.key === 'k' || e.key === 'K' || e.keyCode === 75 || e.which === 75);
+        } else {
+            // Cmd/Ctrl + Shift + P (default)
+            return (e.metaKey || e.ctrlKey) && e.shiftKey &&
+                   (e.key === 'P' || e.keyCode === 80 || e.which === 80);
+        }
+    }
+
     // Bind keyboard shortcut
     function bindKeyboardShortcut() {
         $(document).on('keydown', function(e) {
-            // Check for Cmd/Ctrl + Shift + P
-            if ((e.metaKey || e.ctrlKey) && e.shiftKey &&
-                (e.key === 'P' || e.keyCode === 80 || e.which === 80)) {
+            // Check for configured keyboard shortcut
+            if (isShortcutPressed(e)) {
                 e.preventDefault();
                 toggleModal();
             }
@@ -761,12 +783,12 @@
             left: offset.left - 10,
             width: width + 20,
             height: height + 20,
-            border: `10px solid ${highlightSettings.highlight_color}`,
+            border: `10px solid ${pluginSettings.highlight_color}`,
             borderRadius: '4px',
             pointerEvents: 'none',
             zIndex: 9999,
             boxSizing: 'border-box',
-            opacity: highlightSettings.highlight_opacity,
+            opacity: pluginSettings.highlight_opacity,
             animation: 'pqsPulse 2s ease-in-out infinite'
         });
         
@@ -844,10 +866,10 @@
                 
                 // Remove the highlight after user-configured duration
                 setTimeout(function() {
-                    $('.pqs-highlight-box').fadeOut(highlightSettings.fade_duration, function() {
+                    $('.pqs-highlight-box').fadeOut(pluginSettings.fade_duration, function() {
                         $(this).remove();
                     });
-                }, highlightSettings.highlight_duration);
+                }, pluginSettings.highlight_duration);
             });
         }
     }
