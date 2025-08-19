@@ -5,6 +5,21 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.13] - 2025-08-19
+
+### Added
+- **Word-Based Matching**: Revolutionary search improvement for non-sequential word matching
+  - "WP SMTP" now matches "WP Mail SMTP Pro" and similar patterns
+  - Intelligent word scoring system with exact, prefix, and partial word matching
+  - Bonus scoring for queries that match all words in plugin names
+  - Seamlessly integrated with existing tiered search strategy
+
+### Enhanced
+- **Search Algorithm**: Multi-layered approach for comprehensive plugin discovery
+  - Exact matches → Prefix matches → Contains matches → **NEW: Word matches** → Fuzzy matches
+  - Pre-calculated word arrays for optimal performance
+  - Smart scoring system prevents false positives while improving recall
+
 ## [1.0.12] - 2025-08-19
 
 ### Improved

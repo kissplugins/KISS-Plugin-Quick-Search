@@ -55,9 +55,9 @@
             const $pluginTitle = $row.find('.plugin-title strong');
             const pluginName = $pluginTitle.text().trim();
             const pluginDesc = $row.find('.plugin-description').text().trim();
-
+            
             if (!pluginName) return; // Early exit if no name
-
+            
             // Extract version number from the plugin row
             let version = '';
             const $versionSpan = $row.find('.plugin-version-author-uri');
@@ -68,34 +68,34 @@
                     version = versionMatch[1];
                 }
             }
-
+            
             // Determine activation status and settings link efficiently (upfront collection)
             let isActive = false;
             let settingsUrl = null;
-
+            
             // Scan row actions for both activation status and settings link
             const $actionLinks = $row.find('.row-actions a');
             $actionLinks.each(function() {
                 const $link = $(this);
                 const linkText = $link.text().toLowerCase().trim();
-
+                
                 // Check for activation status
                 if (linkText.includes('deactivate')) {
                     isActive = true;
                 }
-
+                
                 // Check for settings/configure link (broader compatibility)
                 if (linkText === 'settings' || linkText.includes('setting') ||
                     linkText === 'configure' || linkText.includes('configur')) {
                     settingsUrl = $link.attr('href');
                 }
             });
-
+            
             // WordPress uses CSS class 'active' as primary indicator
             if ($row.hasClass('active')) {
                 isActive = true;
             }
-
+            
             // Pre-cache lowercase strings for faster searching
             allPlugins.push({
                 name: pluginName,
@@ -108,7 +108,9 @@
                 element: $row[0],
                 // Pre-calculate some properties for scoring
                 wordCount: pluginName.split(/\s+/).length,
-                hasForIn: pluginName.includes(' for ') || pluginName.includes(' - ')
+                hasForIn: pluginName.includes(' for ') || pluginName.includes(' - '),
+                // NEW: Pre-calculate words for word-based matching
+                nameWords: pluginName.toLowerCase().split(/\s+/).filter(word => word.length > 0)
             });
         });
     }
@@ -149,6 +151,14 @@
         `;
         
         $('body').append(modalHTML);
+        
+        // Bind events
+        bindModalEvents();
+        
+        // Add styles if not already added
+        if (!$('#pqs-dynamic-styles').length) {
+            addDynamicStyles();
+        }
     }
     
     // Bind keyboard shortcut
@@ -161,12 +171,16 @@
                 toggleModal();
             }
             
-            // Handle Escape key
+            // Close modal on Escape
             if (e.key === 'Escape' && modalOpen) {
+                e.preventDefault();
                 closeModal();
             }
         });
-        
+    }
+    
+    // Bind modal events
+    function bindModalEvents() {
         // Handle search input with debouncing
         $('#pqs-search-input').on('input', function() {
             const query = sanitizeInput($(this).val());
@@ -201,7 +215,7 @@
                     clearTimeout(debounceTimer);
                     debounceTimer = null;
                 }
-
+                
                 // Check for Shift+Enter (Settings navigation)
                 if (e.shiftKey) {
                     navigateToSettings();
@@ -240,14 +254,14 @@
         modalOpen = true;
         $('#pqs-overlay').addClass('active');
         $('#pqs-search-input').val('').focus();
-
+        
         // Clear cache when opening modal (optional - remove if you want persistent cache)
         searchCache.clear();
-
+        
         // Phase 2: Reset incremental search state
         lastQuery = '';
         lastResults = [];
-
+        
         // Show all plugins initially
         filterPlugins('');
     }
@@ -256,24 +270,24 @@
     function closeModal() {
         modalOpen = false;
         $('#pqs-overlay').removeClass('active');
-
+        
         // Cancel any pending search
         if (debounceTimer) {
             clearTimeout(debounceTimer);
             debounceTimer = null;
         }
-
+        
         // Phase 2: Reset incremental search state
         lastQuery = '';
         lastResults = [];
-
+        
         // Reset the plugin list to show all
         $('#the-list tr').show();
-
+        
         // Remove any existing highlight boxes
         removeHighlightBoxes();
     }
-    
+
     // Basic Levenshtein distance implementation
     function levenshteinDistance(a, b) {
         const matrix = Array.from({ length: a.length + 1 }, () =>
@@ -297,12 +311,68 @@
         return matrix[a.length][b.length];
     }
 
-    // Optimized relevance scoring with early exits
+    // NEW: Word-based matching function for better search results
+    function calculateWordBasedScore(plugin, queryWords) {
+        const pluginWords = plugin.nameWords;
+        let matchedWords = 0;
+        let totalScore = 0;
+
+        // Check how many query words match plugin words
+        for (const queryWord of queryWords) {
+            let bestWordScore = 0;
+
+            for (const pluginWord of pluginWords) {
+                let wordScore = 0;
+
+                // Exact word match (highest score)
+                if (pluginWord === queryWord) {
+                    wordScore = 100;
+                }
+                // Word starts with query word (high score)
+                else if (pluginWord.startsWith(queryWord)) {
+                    wordScore = 80;
+                }
+                // Query word starts with plugin word (medium score)
+                else if (queryWord.startsWith(pluginWord)) {
+                    wordScore = 60;
+                }
+                // Word contains query word (lower score)
+                else if (pluginWord.includes(queryWord)) {
+                    wordScore = 40;
+                }
+                // Query word contains plugin word (lower score)
+                else if (queryWord.includes(pluginWord)) {
+                    wordScore = 30;
+                }
+
+                bestWordScore = Math.max(bestWordScore, wordScore);
+            }
+
+            if (bestWordScore > 0) {
+                matchedWords++;
+                totalScore += bestWordScore;
+            }
+        }
+
+        // Bonus for matching all query words
+        if (matchedWords === queryWords.length && queryWords.length > 1) {
+            totalScore += 50;
+        }
+
+        // Penalty for unmatched words in long queries
+        if (queryWords.length > 1) {
+            const unmatchedPenalty = (queryWords.length - matchedWords) * 20;
+            totalScore -= unmatchedPenalty;
+        }
+
+        return Math.max(0, totalScore);
+    }
+
+    // Enhanced relevance scoring with word-based matching
     function calculateRelevanceScore(plugin, lowerQuery) {
         // Use pre-cached lowercase strings
         const lowerName = plugin.nameLower;
-        const distance = levenshteinDistance(lowerName, lowerQuery);
-        const threshold = Math.ceil(Math.min(lowerName.length, lowerQuery.length) * 0.4);
+        const queryWords = lowerQuery.split(/\s+/).filter(word => word.length > 0);
 
         let score = 0;
 
@@ -320,7 +390,7 @@
             score = 400;
         }
         // Name contains query as a whole word
-        else if (new RegExp('\\b' + lowerQuery + '\\b', 'i').test(plugin.name)) {
+        else if (new RegExp('\\b' + lowerQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i').test(plugin.name)) {
             score = 300;
         }
         // Name contains query (partial match)
@@ -330,9 +400,21 @@
             const position = lowerName.indexOf(lowerQuery);
             score += Math.max(50 - position, 0);
         }
-        // Fuzzy match using Levenshtein distance
-        else if (distance <= threshold) {
-            score = 120 - distance * 20;
+        // NEW: Word-based matching for non-sequential words (e.g., "WP SMTP" matches "WP Mail SMTP Pro")
+        else if (queryWords.length > 1) {
+            const wordScore = calculateWordBasedScore(plugin, queryWords);
+            if (wordScore > 0) {
+                score = 150 + wordScore; // Base score + word matching bonus
+            }
+        }
+
+        // Fuzzy match using Levenshtein distance (only if no other matches)
+        if (score === 0) {
+            const distance = levenshteinDistance(lowerName, lowerQuery);
+            const threshold = Math.ceil(Math.min(lowerName.length, lowerQuery.length) * 0.4);
+            if (distance <= threshold) {
+                score = 120 - distance * 20;
+            }
         }
 
         // Only check description if we have some score or no name match
@@ -350,13 +432,14 @@
         }
 
         // Bias towards the main WooCommerce plugin
-        if (lowerName === 'woocommerce' && (lowerQuery.includes('woo') || distance <= threshold)) {
+        if (lowerName === 'woocommerce' && (lowerQuery.includes('woo') ||
+            levenshteinDistance(lowerName, lowerQuery) <= Math.ceil(Math.min(lowerName.length, lowerQuery.length) * 0.4))) {
             score += 500;
         }
 
         return score;
     }
-    
+
     // Filter plugins with Phase 2 optimizations: Incremental filtering + Tiered search
     function filterPlugins(query) {
         selectedIndex = 0;
@@ -394,7 +477,11 @@
         const exactMatches = [];
         const prefixMatches = [];
         const containsMatches = [];
+        const wordMatches = []; // NEW: For word-based matches
         const fuzzyMatches = [];
+
+        const queryWords = lowerQuery.split(/\s+/).filter(word => word.length > 0);
+        const isMultiWordQuery = queryWords.length > 1;
 
         // First pass: Exact matches
         for (let i = 0; i < searchPool.length; i++) {
@@ -431,7 +518,25 @@
             }
         }
 
-        let matchingPlugins = [...exactMatches, ...prefixMatches, ...containsMatches];
+        // NEW: Fourth pass: Word-based matches for multi-word queries
+        if (isMultiWordQuery && exactMatches.length + prefixMatches.length + containsMatches.length < MAX_DISPLAY_ITEMS) {
+            for (let i = 0; i < searchPool.length; i++) {
+                const plugin = searchPool[i];
+
+                // Skip if already in other matches
+                if (exactMatches.includes(plugin) || prefixMatches.includes(plugin) || containsMatches.includes(plugin)) {
+                    continue;
+                }
+
+                const wordScore = calculateWordBasedScore(plugin, queryWords);
+                if (wordScore > 50) { // Only include good word matches
+                    wordMatches.push(plugin);
+                    if (exactMatches.length + prefixMatches.length + containsMatches.length + wordMatches.length >= MAX_DISPLAY_ITEMS) break;
+                }
+            }
+        }
+
+        let matchingPlugins = [...exactMatches, ...prefixMatches, ...containsMatches, ...wordMatches];
 
         // Final pass: Fuzzy matching (only if we have fewer than 5 results)
         if (matchingPlugins.length < 5) {
@@ -485,35 +590,35 @@
 
         renderResults();
     }
-    
+
     // Optimized render function
     function renderResults() {
         const $results = $('#pqs-results');
-        
+
         if (filteredPlugins.length === 0) {
             $results.html('<div class="pqs-no-results">No plugins found</div>');
             return;
         }
-        
+
         // Build HTML in memory first (faster than multiple DOM operations)
         let html = '';
         let addedSeparator = false;
         const query = $('#pqs-search-input').val().toLowerCase();
-        
+
         filteredPlugins.forEach((plugin, index) => {
             // Check if this is likely a primary/exact match
             const isExactMatch = plugin.nameLower === query;
             const isStrongMatch = plugin.nameLower.startsWith(query);
-            
+
             // Add separator after first result if it's a strong match and there are more results
-            if (index === 1 && !addedSeparator && 
+            if (index === 1 && !addedSeparator &&
                 filteredPlugins.length > 1 &&
-                (filteredPlugins[0].nameLower === query || 
+                (filteredPlugins[0].nameLower === query ||
                  filteredPlugins[0].nameLower.startsWith(query))) {
                 html += '<div class="pqs-separator">Other matches</div>';
                 addedSeparator = true;
             }
-            
+
             // Show version for the first result
             const showVersion = index === 0 && plugin.version;
 
@@ -538,150 +643,26 @@
                 </div>
             `;
         });
-        
+
         // Single DOM update
         $results.html(html);
-        
-        // Add custom styles for match types if not present
-        if (!$('#pqs-match-styles').length) {
-            const styles = `
-                <style id="pqs-match-styles">
-                    .pqs-result-item.exact-match {
-                        background: #ffffff !important;
-                        border-left: 4px solid #2271b1;
-                        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-                    }
-                    .pqs-result-item.exact-match:hover {
-                        background: #f0f6fc !important;
-                    }
-                    .pqs-result-item.exact-match.selected {
-                        background: #2271b1 !important;
-                        color: #fff !important;
-                        border-left-color: #1a5490;
-                    }
-                    .pqs-result-item.strong-match {
-                        background: #ffffff !important;
-                        border-left: 2px solid #72aee6;
-                    }
-                    .pqs-result-item.strong-match:hover {
-                        background: #f8f9fa !important;
-                    }
-                    .pqs-result-item.strong-match.selected {
-                        background: #2271b1 !important;
-                        color: #fff !important;
-                    }
-                    .pqs-separator {
-                        padding: 5px 15px;
-                        font-size: 11px;
-                        text-transform: uppercase;
-                        color: #666;
-                        border-top: 1px solid #e0e0e0;
-                        margin-top: 5px;
-                        background: #fafafa;
-                    }
-                    .pqs-version {
-                        display: inline-block;
-                        margin-left: 8px;
-                        padding: 2px 6px;
-                        background: rgba(0, 0, 0, 0.07);
-                        border-radius: 3px;
-                        font-size: 12px;
-                        font-weight: normal;
-                        color: #555;
-                    }
-                    .pqs-result-item.selected .pqs-version {
-                        background: rgba(255, 255, 255, 0.2);
-                        color: #fff;
-                    }
-                    .pqs-status {
-                        display: inline-block;
-                        margin-left: 8px;
-                        padding: 2px 8px;
-                        border-radius: 12px;
-                        font-size: 11px;
-                        font-weight: 600;
-                        text-transform: uppercase;
-                        letter-spacing: 0.5px;
-                    }
-                    .pqs-status-active {
-                        background: #d4edda;
-                        color: #155724;
-                        border: 1px solid #c3e6cb;
-                    }
-                    .pqs-status-inactive {
-                        background: #f8d7da;
-                        color: #721c24;
-                        border: 1px solid #f5c6cb;
-                    }
-                    .pqs-result-item.selected .pqs-status {
-                        background: rgba(255, 255, 255, 0.9);
-                        color: #333;
-                        border-color: rgba(255, 255, 255, 0.5);
-                    }
-                    .pqs-result-item.exact-match .pqs-plugin-name {
-                        color: #0a4b78;
-                        font-weight: 700;
-                    }
-                    .pqs-result-item.exact-match.selected .pqs-plugin-name {
-                        color: #fff;
-                    }
-                    .pqs-loading {
-                        opacity: 0.5;
-                    }
-                    .pqs-notification {
-                        position: absolute;
-                        bottom: 20px;
-                        left: 50%;
-                        transform: translateX(-50%);
-                        padding: 10px 20px;
-                        border-radius: 6px;
-                        font-size: 14px;
-                        font-weight: 500;
-                        z-index: 10001;
-                        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-                        animation: pqs-slide-up 0.3s ease-out;
-                    }
-                    .pqs-notification-success {
-                        background: #d4edda;
-                        color: #155724;
-                        border: 1px solid #c3e6cb;
-                    }
-                    .pqs-notification-warning {
-                        background: #fff3cd;
-                        color: #856404;
-                        border: 1px solid #ffeaa7;
-                    }
-                    @keyframes pqs-slide-up {
-                        from {
-                            opacity: 0;
-                            transform: translateX(-50%) translateY(20px);
-                        }
-                        to {
-                            opacity: 1;
-                            transform: translateX(-50%) translateY(0);
-                        }
-                    }
-                </style>
-            `;
-            $('head').append(styles);
-        }
     }
-    
+
     // Navigate through results
     function navigateResults(direction) {
         if (filteredPlugins.length === 0) return;
-        
+
         selectedIndex += direction;
-        
+
         if (selectedIndex < 0) {
             selectedIndex = filteredPlugins.length - 1;
         } else if (selectedIndex >= filteredPlugins.length) {
             selectedIndex = 0;
         }
-        
+
         $('.pqs-result-item').removeClass('selected');
         $('.pqs-result-item').eq(selectedIndex).addClass('selected');
-        
+
         // Scroll to selected item if needed
         const $selected = $('.pqs-result-item.selected');
         const $results = $('#pqs-results');
@@ -690,7 +671,7 @@
             const itemBottom = itemTop + $selected.outerHeight();
             const scrollTop = $results.scrollTop();
             const viewHeight = $results.height();
-            
+
             if (itemTop < 0) {
                 $results.scrollTop(scrollTop + itemTop);
             } else if (itemBottom > viewHeight) {
@@ -741,141 +722,203 @@
         }, 3000);
     }
 
-    // Create a red highlight box around an element
-    function createHighlightBox($element) {
-        // Remove any existing highlight boxes first
-        removeHighlightBoxes();
-        
-        // Get the position and dimensions of the target element
-        const offset = $element.offset();
-        const width = $element.outerWidth();
-        const height = $element.outerHeight();
-        
-        // Create the highlight box
-        const $highlightBox = $('<div class="pqs-highlight-box"></div>');
-        
-        // Style the highlight box with user settings
-        $highlightBox.css({
-            position: 'absolute',
-            top: offset.top - 10,
-            left: offset.left - 10,
-            width: width + 20,
-            height: height + 20,
-            border: `10px solid ${highlightSettings.highlight_color}`,
-            borderRadius: '4px',
-            pointerEvents: 'none',
-            zIndex: 9999,
-            boxSizing: 'border-box',
-            opacity: highlightSettings.highlight_opacity,
-            animation: 'pqsPulse 2s ease-in-out infinite'
-        });
-        
-        // Add the highlight box to the body
-        $('body').append($highlightBox);
-        
-        // Add pulse animation styles if not already present
-        if (!$('#pqs-highlight-styles').length) {
-            // Convert hex color to RGB for box-shadow
-            const hexToRgb = (hex) => {
-                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-                return result ? {
-                    r: parseInt(result[1], 16),
-                    g: parseInt(result[2], 16),
-                    b: parseInt(result[3], 16)
-                } : {r: 255, g: 0, b: 0}; // fallback to red
-            };
-
-            const rgb = hexToRgb(highlightSettings.highlight_color);
-            const baseOpacity = highlightSettings.highlight_opacity;
-
-            const styles = `
-                <style id="pqs-highlight-styles">
-                    @keyframes pqsPulse {
-                        0%, 100% {
-                            opacity: ${baseOpacity};
-                            box-shadow: 0 0 20px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${baseOpacity * 0.5});
-                        }
-                        50% {
-                            opacity: ${baseOpacity * 0.8};
-                            box-shadow: 0 0 40px rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${baseOpacity * 0.8});
-                        }
-                    }
-                    .pqs-highlight-box {
-                        transition: all 0.3s ease;
-                    }
-                </style>
-            `;
-            $('head').append(styles);
-        }
+    // Utility functions
+    function sanitizeInput(input) {
+        return input.replace(/[<>&"']/g, '').substring(0, 100);
     }
-    
-    // Remove all highlight boxes
-    function removeHighlightBoxes() {
-        $('.pqs-highlight-box').remove();
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
-    
+
     // Select the current result and filter the page
     function selectCurrentResult() {
         if (filteredPlugins.length === 0) return;
-        
+
         const selectedPlugin = filteredPlugins[selectedIndex];
-        
+
         // Hide all plugins first
         $('#the-list tr').hide();
-        
+
         // Show only matching plugins
         filteredPlugins.forEach(plugin => {
             $(plugin.element).show();
         });
-        
-        // Close modal
+
+        // Close the modal
         closeModal();
-        
+
         // Create highlight box around the selected plugin
-        if (selectedPlugin && selectedPlugin.element) {
-            const $selectedElement = $(selectedPlugin.element);
-            
-            // Scroll to the selected plugin
+        const $selectedElement = $(selectedPlugin.element);
+        if ($selectedElement.length) {
+            createHighlightBox($selectedElement);
+
+            // Scroll to the selected plugin with smooth animation
             $('html, body').animate({
-                scrollTop: $selectedElement.offset().top - 150
-            }, 300, function() {
-                // Create the highlight box after scrolling is complete
-                createHighlightBox($selectedElement);
-                
-                // Remove the highlight after user-configured duration
-                setTimeout(function() {
-                    $('.pqs-highlight-box').fadeOut(highlightSettings.fade_duration, function() {
-                        $(this).remove();
-                    });
-                }, highlightSettings.highlight_duration);
-            });
+                scrollTop: $selectedElement.offset().top - 100
+            }, 300);
         }
-    }
-    
-    // Escape HTML to prevent XSS
-    function escapeHtml(text) {
-        if (typeof text !== 'string') {
-            return '';
-        }
-        const map = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#039;'
-        };
-        return text.replace(/[&<>"']/g, m => map[m]);
     }
 
-    // Sanitize search input
-    function sanitizeInput(input) {
-        if (typeof input !== 'string') {
-            return '';
-        }
-        // Remove potentially dangerous characters and limit length
-        return input.replace(/[<>]/g, '').substring(0, 100);
+    // Create a red highlight box around an element
+    function createHighlightBox($element) {
+        // Remove any existing highlight boxes first
+        removeHighlightBoxes();
+
+        // Get the position and dimensions of the target element
+        const offset = $element.offset();
+        const width = $element.outerWidth();
+        const height = $element.outerHeight();
+
+        // Convert hex color to RGB for box-shadow
+        const hexColor = highlightSettings.highlight_color;
+        const r = parseInt(hexColor.substr(1, 2), 16);
+        const g = parseInt(hexColor.substr(3, 2), 16);
+        const b = parseInt(hexColor.substr(5, 2), 16);
+        const rgbColor = `${r}, ${g}, ${b}`;
+        const opacity = highlightSettings.highlight_opacity;
+
+        // Create the highlight box
+        const $highlightBox = $(`
+            <div class="pqs-highlight-box" style="
+                position: absolute;
+                top: ${offset.top - 10}px;
+                left: ${offset.left - 10}px;
+                width: ${width + 20}px;
+                height: ${height + 20}px;
+                border: 3px solid ${hexColor};
+                border-radius: 8px;
+                pointer-events: none;
+                z-index: 9999;
+                box-shadow: 0 0 20px rgba(${rgbColor}, ${opacity * 0.6});
+                animation: pqsPulse 2s infinite;
+                opacity: ${opacity};
+            "></div>
+        `);
+
+        // Add to body
+        $('body').append($highlightBox);
+
+        // Auto-remove after specified duration
+        setTimeout(() => {
+            $highlightBox.fadeOut(highlightSettings.fade_duration, () => {
+                $highlightBox.remove();
+            });
+        }, highlightSettings.highlight_duration);
     }
-    
+
+    // Remove all highlight boxes
+    function removeHighlightBoxes() {
+        $('.pqs-highlight-box').remove();
+    }
+
+    // Add dynamic styles
+    function addDynamicStyles() {
+        const styles = `
+            <style id="pqs-dynamic-styles">
+                .pqs-separator {
+                    padding: 5px 15px;
+                    font-size: 11px;
+                    text-transform: uppercase;
+                    color: #666;
+                    border-top: 1px solid #e0e0e0;
+                    margin-top: 5px;
+                    background: #fafafa;
+                }
+                .pqs-version {
+                    display: inline-block;
+                    margin-left: 8px;
+                    padding: 2px 6px;
+                    background: rgba(0, 0, 0, 0.07);
+                    border-radius: 3px;
+                    font-size: 12px;
+                    font-weight: normal;
+                    color: #555;
+                }
+                .pqs-result-item.selected .pqs-version {
+                    background: rgba(255, 255, 255, 0.2);
+                    color: #fff;
+                }
+                .pqs-status {
+                    display: inline-block;
+                    margin-left: 8px;
+                    padding: 2px 8px;
+                    border-radius: 12px;
+                    font-size: 11px;
+                    font-weight: 600;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                }
+                .pqs-status-active {
+                    background: #d4edda;
+                    color: #155724;
+                    border: 1px solid #c3e6cb;
+                }
+                .pqs-status-inactive {
+                    background: #f8d7da;
+                    color: #721c24;
+                    border: 1px solid #f5c6cb;
+                }
+                .pqs-result-item.selected .pqs-status {
+                    background: rgba(255, 255, 255, 0.9);
+                    color: #333;
+                    border-color: rgba(255, 255, 255, 0.5);
+                }
+                .pqs-result-item.exact-match .pqs-plugin-name {
+                    color: #0a4b78;
+                    font-weight: 700;
+                }
+                .pqs-result-item.exact-match.selected .pqs-plugin-name {
+                    color: #fff;
+                }
+                .pqs-loading {
+                    opacity: 0.5;
+                }
+                .pqs-notification {
+                    position: absolute;
+                    bottom: 20px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    padding: 10px 20px;
+                    border-radius: 6px;
+                    font-size: 14px;
+                    font-weight: 500;
+                    z-index: 10001;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                    animation: pqs-slide-up 0.3s ease-out;
+                }
+                .pqs-notification-success {
+                    background: #d4edda;
+                    color: #155724;
+                    border: 1px solid #c3e6cb;
+                }
+                .pqs-notification-warning {
+                    background: #fff3cd;
+                    color: #856404;
+                    border: 1px solid #ffeaa7;
+                }
+                @keyframes pqs-slide-up {
+                    from {
+                        opacity: 0;
+                        transform: translateX(-50%) translateY(20px);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translateX(-50%) translateY(0);
+                    }
+                }
+                @keyframes pqsPulse {
+                    0% { transform: scale(1); }
+                    50% { transform: scale(1.02); }
+                    100% { transform: scale(1); }
+                }
+            </style>
+        `;
+        $('head').append(styles);
+    }
+
     // Handle window resize to update highlight box position
     $(window).on('resize scroll', function() {
         const $highlightBox = $('.pqs-highlight-box');
@@ -886,7 +929,7 @@
                 const offset = $highlightedRow.offset();
                 const width = $highlightedRow.outerWidth();
                 const height = $highlightedRow.outerHeight();
-                
+
                 $highlightBox.css({
                     top: offset.top - 10,
                     left: offset.left - 10,
@@ -896,5 +939,5 @@
             }
         }
     });
-    
+
 })(jQuery);

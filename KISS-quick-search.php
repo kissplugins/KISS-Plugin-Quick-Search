@@ -3,7 +3,7 @@
  * Plugin Name: KISS Plugin Quick Search
  * Plugin URI: https://kissplugins.com/
  * Description: Adds keyboard shortcut (Cmd+Shift+P or Ctrl+Shift+P) to quickly search and filter plugins on the Plugins page
- * Version: 1.0.12
+ * Version: 1.0.13
  * Author: KISS Plugins
  * License: GPL v2 or later
  */
@@ -16,20 +16,20 @@ if (!defined('ABSPATH')) {
 class PluginQuickSearch {
 
     // Plugin version for cache busting
-    const VERSION = '1.0.12';
+    const VERSION = '1.0.13';
 
     // Default settings
     private $default_settings = array(
-        'highlight_duration' => 8000,  // 8 seconds (increased from 5)
-        'fade_duration' => 2000,       // 2 seconds (increased from 1)
-        'highlight_color' => '#ff0000', // Red color
+        'highlight_duration' => 8000,  // 8 seconds
+        'fade_duration' => 2000,       // 2 seconds
+        'highlight_color' => '#ff0000', // Red
         'highlight_opacity' => 1.0     // Full opacity
     );
 
     public function __construct() {
         add_action('admin_enqueue_scripts', array($this, 'enqueue_scripts'));
-        add_action('admin_menu', array($this, 'add_admin_menu'));
-        add_action('admin_init', array($this, 'settings_init'));
+        add_action('admin_menu', array($this, 'add_settings_page'));
+        add_action('admin_init', array($this, 'register_settings'));
     }
     
     public function enqueue_scripts($hook) {
@@ -76,48 +76,48 @@ class PluginQuickSearch {
         // Add inline CSS
         wp_add_inline_style('wp-admin', $this->get_inline_styles());
     }
-    
+
     private function get_inline_styles() {
         return '
             .pqs-overlay {
-                display: none;
                 position: fixed;
                 top: 0;
                 left: 0;
-                right: 0;
-                bottom: 0;
-                background: rgba(0, 0, 0, 0.5);
-                z-index: 100000;
-                animation: pqsFadeIn 0.2s ease-out;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.7);
+                z-index: 10000;
+                display: none;
+                align-items: center;
+                justify-content: center;
             }
             
             .pqs-overlay.active {
                 display: flex;
-                align-items: flex-start;
-                justify-content: center;
-                padding-top: 100px;
             }
             
             .pqs-modal {
                 background: #fff;
                 border-radius: 8px;
-                box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
                 width: 90%;
                 max-width: 600px;
-                animation: pqsSlideDown 0.2s ease-out;
+                max-height: 80vh;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+                position: relative;
+                overflow: hidden;
             }
             
             .pqs-search-wrapper {
-                padding: 20px;
+                padding: 20px 20px 10px;
                 border-bottom: 1px solid #e0e0e0;
             }
             
             .pqs-search-input {
                 width: 100%;
                 padding: 12px 16px;
-                font-size: 16px;
                 border: 2px solid #ddd;
-                border-radius: 4px;
+                border-radius: 6px;
+                font-size: 16px;
                 outline: none;
                 transition: border-color 0.2s;
             }
@@ -172,16 +172,19 @@ class PluginQuickSearch {
             
             .pqs-help {
                 padding: 10px 20px;
-                background: #f0f0f0;
+                background: #f8f8f8;
                 border-top: 1px solid #e0e0e0;
                 font-size: 12px;
                 color: #666;
-                border-radius: 0 0 8px 8px;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 15px;
             }
             
             .pqs-help-item {
-                display: inline-block;
-                margin-right: 20px;
+                display: flex;
+                align-items: center;
+                gap: 5px;
             }
             
             .pqs-kbd {
@@ -191,43 +194,13 @@ class PluginQuickSearch {
                 padding: 2px 6px;
                 font-family: monospace;
                 font-size: 11px;
-            }
-            
-            .pqs-loading {
-                opacity: 0.6;
-                pointer-events: none;
-            }
-            
-            @keyframes pqsFadeIn {
-                from { opacity: 0; }
-                to { opacity: 1; }
-            }
-            
-            @keyframes pqsSlideDown {
-                from {
-                    opacity: 0;
-                    transform: translateY(-20px);
-                }
-                to {
-                    opacity: 1;
-                    transform: translateY(0);
-                }
+                color: #333;
             }
         ';
     }
 
-    /**
-     * Get plugin settings with defaults
-     */
-    private function get_settings() {
-        $settings = get_option('pqs_settings', array());
-        return wp_parse_args($settings, $this->default_settings);
-    }
-
-    /**
-     * Add admin menu for settings
-     */
-    public function add_admin_menu() {
+    // Settings page functionality
+    public function add_settings_page() {
         add_options_page(
             'Plugin Quick Search Settings',
             'Plugin Quick Search',
@@ -237,132 +210,110 @@ class PluginQuickSearch {
         );
     }
 
-    /**
-     * Initialize settings
-     */
-    public function settings_init() {
-        register_setting('pqs_settings', 'pqs_settings', array($this, 'sanitize_settings'));
+    public function register_settings() {
+        register_setting('pqs_settings', 'pqs_highlight_duration', array(
+            'type' => 'integer',
+            'default' => 8000,
+            'sanitize_callback' => array($this, 'sanitize_duration')
+        ));
+        
+        register_setting('pqs_settings', 'pqs_fade_duration', array(
+            'type' => 'integer', 
+            'default' => 2000,
+            'sanitize_callback' => array($this, 'sanitize_fade_duration')
+        ));
+        
+        register_setting('pqs_settings', 'pqs_highlight_color', array(
+            'type' => 'string',
+            'default' => '#ff0000',
+            'sanitize_callback' => 'sanitize_hex_color'
+        ));
+        
+        register_setting('pqs_settings', 'pqs_highlight_opacity', array(
+            'type' => 'number',
+            'default' => 1.0,
+            'sanitize_callback' => array($this, 'sanitize_opacity')
+        ));
+    }
 
-        add_settings_section(
-            'pqs_highlight_section',
-            'Highlight Box Settings',
-            array($this, 'settings_section_callback'),
-            'pqs_settings'
-        );
+    public function sanitize_duration($value) {
+        $value = intval($value);
+        return max(1000, min(30000, $value)); // 1-30 seconds
+    }
 
-        add_settings_field(
-            'highlight_duration',
-            'Highlight Duration (milliseconds)',
-            array($this, 'highlight_duration_render'),
-            'pqs_settings',
-            'pqs_highlight_section'
-        );
+    public function sanitize_fade_duration($value) {
+        $value = intval($value);
+        return max(500, min(5000, $value)); // 0.5-5 seconds
+    }
 
-        add_settings_field(
-            'fade_duration',
-            'Fade Duration (milliseconds)',
-            array($this, 'fade_duration_render'),
-            'pqs_settings',
-            'pqs_highlight_section'
-        );
+    public function sanitize_opacity($value) {
+        $value = floatval($value);
+        return max(0.1, min(1.0, $value)); // 0.1-1.0
+    }
 
-        add_settings_field(
-            'highlight_color',
-            'Highlight Color',
-            array($this, 'highlight_color_render'),
-            'pqs_settings',
-            'pqs_highlight_section'
-        );
-
-        add_settings_field(
-            'highlight_opacity',
-            'Highlight Opacity (0.1 - 1.0)',
-            array($this, 'highlight_opacity_render'),
-            'pqs_settings',
-            'pqs_highlight_section'
+    public function get_settings() {
+        return array(
+            'highlight_duration' => get_option('pqs_highlight_duration', $this->default_settings['highlight_duration']),
+            'fade_duration' => get_option('pqs_fade_duration', $this->default_settings['fade_duration']),
+            'highlight_color' => get_option('pqs_highlight_color', $this->default_settings['highlight_color']),
+            'highlight_opacity' => get_option('pqs_highlight_opacity', $this->default_settings['highlight_opacity'])
         );
     }
 
-    /**
-     * Sanitize settings input
-     */
-    public function sanitize_settings($input) {
-        $sanitized = array();
-
-        // Highlight duration (1000-30000ms)
-        $sanitized['highlight_duration'] = max(1000, min(30000, intval($input['highlight_duration'])));
-
-        // Fade duration (500-5000ms)
-        $sanitized['fade_duration'] = max(500, min(5000, intval($input['fade_duration'])));
-
-        // Highlight color (hex color)
-        $sanitized['highlight_color'] = sanitize_hex_color($input['highlight_color']);
-        if (empty($sanitized['highlight_color'])) {
-            $sanitized['highlight_color'] = '#ff0000';
+    public function settings_page() {
+        if (isset($_POST['submit'])) {
+            update_option('pqs_highlight_duration', $this->sanitize_duration($_POST['pqs_highlight_duration']));
+            update_option('pqs_fade_duration', $this->sanitize_fade_duration($_POST['pqs_fade_duration']));
+            update_option('pqs_highlight_color', sanitize_hex_color($_POST['pqs_highlight_color']));
+            update_option('pqs_highlight_opacity', $this->sanitize_opacity($_POST['pqs_highlight_opacity']));
+            echo '<div class="notice notice-success"><p>Settings saved!</p></div>';
         }
 
-        // Highlight opacity (0.1-1.0)
-        $sanitized['highlight_opacity'] = max(0.1, min(1.0, floatval($input['highlight_opacity'])));
-
-        return $sanitized;
-    }
-
-    /**
-     * Settings section callback
-     */
-    public function settings_section_callback() {
-        echo '<p>Configure how the highlight box behaves when you select a plugin from search results.</p>';
-    }
-
-    /**
-     * Render highlight duration field
-     */
-    public function highlight_duration_render() {
         $settings = $this->get_settings();
-        echo '<input type="number" name="pqs_settings[highlight_duration]" value="' . esc_attr($settings['highlight_duration']) . '" min="1000" max="30000" step="500" />';
-        echo '<p class="description">How long the highlight box stays visible (1000-30000ms). Default: 8000ms (8 seconds)</p>';
-    }
-
-    /**
-     * Render fade duration field
-     */
-    public function fade_duration_render() {
-        $settings = $this->get_settings();
-        echo '<input type="number" name="pqs_settings[fade_duration]" value="' . esc_attr($settings['fade_duration']) . '" min="500" max="5000" step="250" />';
-        echo '<p class="description">How long the fade-out animation takes (500-5000ms). Default: 2000ms (2 seconds)</p>';
-    }
-
-    /**
-     * Render highlight color field
-     */
-    public function highlight_color_render() {
-        $settings = $this->get_settings();
-        echo '<input type="color" name="pqs_settings[highlight_color]" value="' . esc_attr($settings['highlight_color']) . '" />';
-        echo '<p class="description">Color of the highlight box border. Default: #ff0000 (red)</p>';
-    }
-
-    /**
-     * Render highlight opacity field
-     */
-    public function highlight_opacity_render() {
-        $settings = $this->get_settings();
-        echo '<input type="number" name="pqs_settings[highlight_opacity]" value="' . esc_attr($settings['highlight_opacity']) . '" min="0.1" max="1.0" step="0.1" />';
-        echo '<p class="description">Opacity of the highlight box (0.1-1.0). Default: 1.0 (fully opaque)</p>';
-    }
-
-    /**
-     * Settings page HTML
-     */
-    public function settings_page() {
         ?>
         <div class="wrap">
             <h1>Plugin Quick Search Settings</h1>
-            <form action="options.php" method="post">
-                <?php
-                settings_fields('pqs_settings');
-                do_settings_sections('pqs_settings');
-                submit_button();
-                ?>
+            <form method="post" action="">
+                <table class="form-table">
+                    <tr>
+                        <th scope="row">Highlight Duration</th>
+                        <td>
+                            <input type="range" name="pqs_highlight_duration" min="1000" max="30000" step="1000" 
+                                   value="<?php echo esc_attr($settings['highlight_duration']); ?>" 
+                                   oninput="this.nextElementSibling.value = (this.value/1000) + ' seconds'">
+                            <output><?php echo ($settings['highlight_duration']/1000); ?> seconds</output>
+                            <p class="description">How long the highlight box stays visible (1-30 seconds)</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Fade Duration</th>
+                        <td>
+                            <input type="range" name="pqs_fade_duration" min="500" max="5000" step="250"
+                                   value="<?php echo esc_attr($settings['fade_duration']); ?>"
+                                   oninput="this.nextElementSibling.value = (this.value/1000) + ' seconds'">
+                            <output><?php echo ($settings['fade_duration']/1000); ?> seconds</output>
+                            <p class="description">How long the fade-out animation takes (0.5-5 seconds)</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Highlight Color</th>
+                        <td>
+                            <input type="color" name="pqs_highlight_color" value="<?php echo esc_attr($settings['highlight_color']); ?>">
+                            <p class="description">Color of the highlight box border</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Highlight Opacity</th>
+                        <td>
+                            <input type="range" name="pqs_highlight_opacity" min="0.1" max="1.0" step="0.1"
+                                   value="<?php echo esc_attr($settings['highlight_opacity']); ?>"
+                                   oninput="this.nextElementSibling.value = Math.round(this.value * 100) + '%'">
+                            <output><?php echo round($settings['highlight_opacity'] * 100); ?>%</output>
+                            <p class="description">Transparency of the highlight box (10-100%)</p>
+                        </td>
+                    </tr>
+                </table>
+                <?php submit_button(); ?>
             </form>
 
             <div class="pqs-settings-info" style="margin-top: 30px; padding: 15px; background: #f1f1f1; border-radius: 5px;">
@@ -372,16 +323,9 @@ class PluginQuickSearch {
                     <li>Press <strong>Cmd+Shift+P</strong> (Mac) or <strong>Ctrl+Shift+P</strong> (Windows/Linux)</li>
                     <li>Type to search for plugins</li>
                     <li>Use arrow keys to navigate and press <strong>Enter</strong> to select</li>
+                    <li>Press <strong>Shift+Enter</strong> to go to plugin settings</li>
                     <li>The selected plugin will be highlighted with your custom settings</li>
                 </ol>
-
-                <h3>Tips</h3>
-                <ul>
-                    <li><strong>Highlight Duration:</strong> Longer durations help you locate the plugin, but may be distracting</li>
-                    <li><strong>Fade Duration:</strong> Longer fades are smoother but take more time</li>
-                    <li><strong>Color:</strong> Choose a color that contrasts well with your admin theme</li>
-                    <li><strong>Opacity:</strong> Lower opacity is less intrusive but may be harder to see</li>
-                </ul>
             </div>
         </div>
         <?php
