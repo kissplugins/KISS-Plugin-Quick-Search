@@ -3,7 +3,7 @@
  * Plugin Name: KISS Plugin Quick Search
  * Plugin URI: https://kissplugins.com/
  * Description: Adds keyboard shortcut (Cmd+Shift+P or Ctrl+Shift+P) to quickly search and filter plugins on the Plugins page
- * Version: 1.0.13
+ * Version: 1.1.0
  * Author: KISS Plugins
  * License: GPL v2 or later
  */
@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
 class PluginQuickSearch {
 
     // Plugin version for cache busting
-    const VERSION = '1.0.13';
+    const VERSION = '1.1.0';
 
     // Default settings
     private $default_settings = array(
@@ -24,7 +24,9 @@ class PluginQuickSearch {
         'highlight_duration' => 8000,  // 8 seconds (increased from 5)
         'fade_duration' => 2000,       // 2 seconds (increased from 1)
         'highlight_color' => '#ff0000', // Red color
-        'highlight_opacity' => 1.0     // Full opacity
+        'highlight_opacity' => 1.0,    // Full opacity
+        'cache_duration' => 60,        // 1 hour in minutes
+        'auto_refresh_cache' => true   // Auto-refresh on plugin activate/deactivate
     );
 
     public function __construct() {
@@ -64,6 +66,9 @@ class PluginQuickSearch {
 
         // Get user settings
         $settings = $this->get_settings();
+
+        // Convert cache duration from minutes to milliseconds for JavaScript
+        $settings['cache_duration_ms'] = $settings['cache_duration'] * 60 * 1000;
 
         // Add nonce for security and pass settings to JavaScript
         wp_localize_script('plugin-quick-search', 'pqs_ajax', array(
@@ -301,6 +306,37 @@ class PluginQuickSearch {
             .pqs-toggle-switch:hover input:checked + .pqs-toggle-slider {
                 background-color: #005a87;
             }
+
+            /* Cache status styling */
+            .pqs-cache-status {
+                float: right;
+                font-size: 11px;
+                color: #666;
+                font-style: italic;
+                margin-left: auto;
+            }
+
+            .pqs-cache-notification {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                padding: 8px 12px;
+                border-radius: 4px;
+                font-size: 12px;
+                z-index: 100001;
+            }
+
+            .pqs-notification-success {
+                background: #d4edda;
+                color: #155724;
+                border: 1px solid #c3e6cb;
+            }
+
+            .pqs-notification-info {
+                background: #d1ecf1;
+                color: #0c5460;
+                border: 1px solid #bee5eb;
+            }
         ';
     }
 
@@ -351,6 +387,29 @@ class PluginQuickSearch {
             array($this, 'keyboard_shortcut_render'),
             'pqs_settings',
             'pqs_keyboard_section'
+        );
+
+        add_settings_section(
+            'pqs_cache_section',
+            'Cache Management',
+            array($this, 'cache_section_callback'),
+            'pqs_settings'
+        );
+
+        add_settings_field(
+            'cache_duration',
+            'Cache Duration (minutes)',
+            array($this, 'cache_duration_render'),
+            'pqs_settings',
+            'pqs_cache_section'
+        );
+
+        add_settings_field(
+            'auto_refresh_cache',
+            'Auto-refresh Cache',
+            array($this, 'auto_refresh_cache_render'),
+            'pqs_settings',
+            'pqs_cache_section'
         );
 
         add_settings_field(
@@ -412,6 +471,12 @@ class PluginQuickSearch {
             ? $input['keyboard_shortcut']
             : 'cmd_shift_p';
 
+        // Cache duration (5-1440 minutes)
+        $sanitized['cache_duration'] = max(5, min(1440, intval($input['cache_duration'])));
+
+        // Auto-refresh cache (boolean)
+        $sanitized['auto_refresh_cache'] = !empty($input['auto_refresh_cache']);
+
         return $sanitized;
     }
 
@@ -420,6 +485,13 @@ class PluginQuickSearch {
      */
     public function keyboard_section_callback() {
         echo '<p>Choose which keyboard shortcut opens the plugin search modal.</p>';
+    }
+
+    /**
+     * Cache section callback
+     */
+    public function cache_section_callback() {
+        echo '<p>Configure caching behavior to improve performance on sites with many plugins.</p>';
     }
 
     /**
@@ -453,6 +525,26 @@ class PluginQuickSearch {
         </div>
         <p class="description">Choose your preferred keyboard shortcut to open the plugin search modal.</p>
         <?php
+    }
+
+    /**
+     * Render cache duration field
+     */
+    public function cache_duration_render() {
+        $settings = $this->get_settings();
+        echo '<input type="number" name="pqs_settings[cache_duration]" value="' . esc_attr($settings['cache_duration']) . '" min="5" max="1440" step="5" />';
+        echo '<p class="description">How long to cache plugin data (5-1440 minutes). Default: 60 minutes</p>';
+    }
+
+    /**
+     * Render auto-refresh cache field
+     */
+    public function auto_refresh_cache_render() {
+        $settings = $this->get_settings();
+        $checked = checked($settings['auto_refresh_cache'], true, false);
+        echo '<input type="checkbox" name="pqs_settings[auto_refresh_cache]" value="1" ' . $checked . ' />';
+        echo '<label for="pqs_settings[auto_refresh_cache]">Automatically refresh cache when plugins are activated/deactivated</label>';
+        echo '<p class="description">Recommended for optimal performance and accuracy</p>';
     }
 
     /**
