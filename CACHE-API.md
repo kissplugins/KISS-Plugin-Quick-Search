@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Plugin Quick Search intelligent caching system provides a high-performance localStorage-based caching solution that other WordPress plugins can leverage. This document explains how to integrate with and extend the caching system.
+The Plugin Quick Search intelligent caching system provides a high-performance localStorage-based caching solution of current Plugin statuses that other WordPress plugins can leverage. This document explains how to integrate with and extend the caching system.
 
 ## Cache Architecture
 
@@ -326,7 +326,8 @@ The plugin includes a comprehensive testing and diagnostic system accessible via
 - **Real-time cache status** with visual indicators (red/green dot)
 - **Comprehensive self-tests** covering cache, search algorithms, and system functionality
 - **Cache management tools** for clearing and rebuilding cache
-- **API documentation** and integration examples
+- **Integrated API documentation** within the cache overview section for easy reference
+- **Streamlined layout** with API information positioned alongside cache status for better workflow
 
 ### Self-Test Categories
 
