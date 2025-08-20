@@ -5,6 +5,14 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2025-08-20
+
+### Enhanced
+- **Improved Cache Status Page Layout**: Moved Cache API Information section into the main cache overview area
+  - Eliminated large empty space in cache status dashboard
+  - Better integration of API documentation with cache status information
+  - More cohesive and space-efficient layout for the cache management interface
+
 ## [1.1.0] - 2025-08-19
 
 ### 🚀 Major Performance Update - Intelligent Caching System

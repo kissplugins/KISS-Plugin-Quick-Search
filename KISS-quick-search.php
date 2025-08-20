@@ -767,6 +767,22 @@ class PluginQuickSearch {
                     <div id="pqs-cache-info" class="pqs-cache-info-box">
                         <p>Loading cache status...</p>
                     </div>
+
+                    <div class="pqs-cache-api-info">
+                        <h3>Cache API Information</h3>
+                        <p>Other plugins can access the cache using the following JavaScript API:</p>
+                        <pre><code>// Check cache status
+window.pqsCacheStatus() // Returns: 'fresh', 'stale', 'error', 'loading'
+
+// Get cached data
+const data = JSON.parse(localStorage.getItem('pqs_plugin_cache') || '[]');
+
+// Listen for cache events
+document.addEventListener('pqs-cache-rebuilt', function(event) {
+    console.log('Cache rebuilt with', event.detail.pluginCount, 'plugins');
+});</code></pre>
+                        <p><a href="<?php echo plugin_dir_url(__FILE__); ?>CACHE-API.md" target="_blank">View full API documentation</a></p>
+                    </div>
                 </div>
 
                 <div class="pqs-cache-tests">
@@ -832,21 +848,7 @@ class PluginQuickSearch {
                     </div>
                 </div>
 
-                <div class="pqs-cache-api">
-                    <h2>Cache API Information</h2>
-                    <p>Other plugins can access the cache using the following JavaScript API:</p>
-                    <pre><code>// Check cache status
-window.pqsCacheStatus() // Returns: 'fresh', 'stale', 'error', 'loading'
 
-// Get cached data
-const data = JSON.parse(localStorage.getItem('pqs_plugin_cache') || '[]');
-
-// Listen for cache events
-document.addEventListener('pqs-cache-rebuilt', function(event) {
-    console.log('Cache rebuilt with', event.detail.pluginCount, 'plugins');
-});</code></pre>
-                    <p><a href="<?php echo plugin_dir_url(__FILE__); ?>CACHE-API.md" target="_blank">View full API documentation</a></p>
-                </div>
             </div>
         </div>
 
