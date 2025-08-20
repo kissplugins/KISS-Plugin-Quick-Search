@@ -35,11 +35,16 @@ class PluginQuickSearch {
         add_action('admin_init', array($this, 'settings_init'));
         add_action('wp_ajax_pqs_get_cache_status', array($this, 'ajax_get_cache_status'));
         add_action('wp_ajax_pqs_run_cache_diagnostics', array($this, 'ajax_run_cache_diagnostics'));
+        // Expose a server-side row injection on SBI Self Tests page
+        add_filter('kiss_sbi_self_test_results', array($this, 'inject_sbi_self_test_row'));
     }
-    
+
     public function enqueue_scripts($hook) {
-        // Load on plugins.php page and cache status page
-        if ($hook !== 'plugins.php' && $hook !== 'plugins_page_pqs-cache-status') {
+        // Load on plugins.php page, cache status page, and SBI Self Tests page
+        $is_plugins = ($hook === 'plugins.php');
+        $is_cache_status = ($hook === 'plugins_page_pqs-cache-status');
+        $is_sbi_tests = ($hook === 'plugins_page_kiss-smart-batch-installer-tests');
+        if (!$is_plugins && !$is_cache_status && !$is_sbi_tests) {
             return;
         }
 
@@ -51,7 +56,7 @@ class PluginQuickSearch {
         // Get file modification time for cache busting
         $js_file_path = plugin_dir_path(__FILE__) . 'plugin-quick-search.js';
         $version = self::VERSION;
-        
+
         // Use file modification time for development, version for production
         if (defined('WP_DEBUG') && WP_DEBUG) {
             $version = file_exists($js_file_path) ? filemtime($js_file_path) : self::VERSION;
@@ -65,6 +70,26 @@ class PluginQuickSearch {
             $version,
             true
         );
+
+        // If on SBI Self Tests page, inject a small counter script to publish a row
+        if ($is_sbi_tests) {
+            wp_register_script('pqs-sbi-counter', '', array('plugin-quick-search'), $version, true);
+            $inline = "(function(){\n" .
+                "  function inject(){\n" .
+                "    if (!window.kissSbiSelfTests || !window.kissSbiSelfTests.addOrUpdateRow) return;\n" .
+                "    var len=0; try { len = JSON.parse(localStorage.getItem('pqs_plugin_cache')||'[]').length; } catch(e) {}\n" .
+                "    var status=(typeof window.pqsCacheStatus==='function') ? window.pqsCacheStatus() : (len>0 ? 'unknown' : 'missing');\n" .
+                "    var pass=(status==='fresh') || (status==='unknown' && len>0);\n" .
+                "    var details='status='+status+', entries='+len+(status==='unknown' ? ' (via localStorage)' : '');\n" .
+                "    window.kissSbiSelfTests.addOrUpdateRow('pqs_counter','PQS: Counter Check (from PQS)',pass,details);\n" .
+                "  }\n" .
+                "  if (document.readyState==='complete' || document.readyState==='interactive') inject();\n" .
+                "  else document.addEventListener('DOMContentLoaded', inject);\n" .
+                "  document.addEventListener('kiss-sbi-self-tests-ready', function(){ inject(); }, { once:true });\n" .
+                "})();";
+            wp_add_inline_script('pqs-sbi-counter', $inline);
+            wp_enqueue_script('pqs-sbi-counter');
+        }
 
         // Get user settings
         $settings = $this->get_settings();
@@ -82,9 +107,35 @@ class PluginQuickSearch {
         ));
 
         // Add inline CSS
-        wp_add_inline_style('wp-admin', $this->get_inline_styles());
+        if ($is_plugins || $is_cache_status) {
+            wp_add_inline_style('wp-admin', $this->get_inline_styles());
+        }
     }
-    
+
+    /**
+     * Inject a server-side row into SBI's Self Tests as a baseline indicator
+     */
+    public function inject_sbi_self_test_row($results) {
+        try {
+            if (!function_exists('is_plugin_active')) {
+                require_once ABSPATH . 'wp-admin/includes/plugin.php';
+            }
+            $active = function_exists('is_plugin_active') && (is_plugin_active(plugin_basename(__FILE__)) || is_plugin_active('plugin-quick-search/plugin-quick-search.php'));
+            $results['pqs_counter_server'] = array(
+                'label' => 'PQS: Counter (server-side)',
+                'pass'  => (bool) $active,
+                'details' => $active ? 'PQS is active; JS augments details on page load' : 'PQS not detected active; JS may still add details if loaded'
+            );
+        } catch (\Throwable $e) {
+            $results['pqs_counter_server'] = array(
+                'label' => 'PQS: Counter (server-side)',
+                'pass'  => false,
+                'details' => 'Error: ' . $e->getMessage()
+            );
+        }
+        return $results;
+    }
+
     private function get_inline_styles() {
         return '
             .pqs-overlay {
@@ -98,14 +149,14 @@ class PluginQuickSearch {
                 z-index: 100000;
                 animation: pqsFadeIn 0.2s ease-out;
             }
-            
+
             .pqs-overlay.active {
                 display: flex;
                 align-items: flex-start;
                 justify-content: center;
                 padding-top: 100px;
             }
-            
+
             .pqs-modal {
                 background: #fff;
                 border-radius: 8px;
@@ -114,12 +165,12 @@ class PluginQuickSearch {
                 max-width: 600px;
                 animation: pqsSlideDown 0.2s ease-out;
             }
-            
+
             .pqs-search-wrapper {
                 padding: 20px;
                 border-bottom: 1px solid #e0e0e0;
             }
-            
+
             .pqs-search-input {
                 width: 100%;
                 padding: 12px 16px;
@@ -129,18 +180,18 @@ class PluginQuickSearch {
                 outline: none;
                 transition: border-color 0.2s;
             }
-            
+
             .pqs-search-input:focus {
                 border-color: #2271b1;
                 box-shadow: 0 0 0 1px #2271b1;
             }
-            
+
             .pqs-results {
                 max-height: 400px;
                 overflow-y: auto;
                 padding: 10px;
             }
-            
+
             .pqs-result-item {
                 padding: 10px 15px;
                 margin: 5px 0;
@@ -149,21 +200,21 @@ class PluginQuickSearch {
                 cursor: pointer;
                 transition: background-color 0.2s;
             }
-            
+
             .pqs-result-item:hover {
                 background: #e8e8e8;
             }
-            
+
             .pqs-result-item.selected {
                 background: #2271b1;
                 color: #fff;
             }
-            
+
             .pqs-plugin-name {
                 font-weight: 600;
                 margin-bottom: 4px;
             }
-            
+
             .pqs-plugin-desc {
                 font-size: 12px;
                 opacity: 0.8;
@@ -171,13 +222,13 @@ class PluginQuickSearch {
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-            
+
             .pqs-no-results {
                 padding: 20px;
                 text-align: center;
                 color: #666;
             }
-            
+
             .pqs-help {
                 padding: 10px 20px;
                 background: #f0f0f0;
@@ -186,12 +237,12 @@ class PluginQuickSearch {
                 color: #666;
                 border-radius: 0 0 8px 8px;
             }
-            
+
             .pqs-help-item {
                 display: inline-block;
                 margin-right: 20px;
             }
-            
+
             .pqs-kbd {
                 background: #fff;
                 border: 1px solid #ccc;
@@ -200,17 +251,17 @@ class PluginQuickSearch {
                 font-family: monospace;
                 font-size: 11px;
             }
-            
+
             .pqs-loading {
                 opacity: 0.6;
                 pointer-events: none;
             }
-            
+
             @keyframes pqsFadeIn {
                 from { opacity: 0; }
                 to { opacity: 1; }
             }
-            
+
             @keyframes pqsSlideDown {
                 from {
                     opacity: 0;
