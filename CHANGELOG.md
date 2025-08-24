@@ -5,6 +5,34 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2025-08-24
+
+### Added
+- **Keyboard Shortcut Coordination System**: Implemented coordination system to prevent conflicts with other plugins
+  - Added `window.pqsKeyboardHandlerActive` marker to indicate PQS is handling keyboard shortcuts
+  - Exposed `window.PQS` public API for other plugins to integrate with PQS modal
+  - Early initialization of coordination markers to prevent race conditions
+  - Smart routing system for unified keyboard shortcut experience
+
+### Enhanced
+- **Developer Ecosystem Support**: Created comprehensive integration framework for third-party plugins
+  - Added DEVELOPER-KEYCOMBO.md with complete integration guide
+  - Provided coordination system examples and best practices
+  - Enhanced testing procedures and integration checklist
+  - Enabled ecosystem expansion with proper conflict prevention
+
+- **Smart Batch Installer Integration**: Coordinated keyboard shortcut behavior with SBI plugin
+  - Unified Cmd/Ctrl+Shift+P experience across both plugins
+  - Context-aware routing based on current page
+  - Graceful fallback when coordination system not available
+
+### Technical Improvements
+- **Public API Exposure**: Added standardized interface for external plugin integration
+  - `window.PQS.open()` - Opens PQS modal
+  - `window.PQS.close()` - Closes PQS modal
+  - `window.PQS.isOpen()` - Returns modal state
+  - `window.PQS.getStatus()` - Returns comprehensive PQS status
+
 ## [1.1.1] - 2025-08-20
 
 ### Enhanced
