@@ -30,9 +30,62 @@
         highlight_color: '#ff0000', // Red
         highlight_opacity: 1.0     // Full opacity
     };
-    
+
+    // PQS Coordination System - Set up early to prevent conflicts with other plugins
+    function setupPQSCoordinationSystem() {
+        // Mark that PQS keyboard handler is active
+        window.pqsKeyboardHandlerActive = true;
+
+        // Expose public PQS API for other plugins to use
+        window.PQS = {
+            open: function() {
+                // Open the PQS modal
+                if (typeof toggleModal === 'function') {
+                    if (!modalOpen) {
+                        toggleModal();
+                    }
+                } else {
+                    console.warn('PQS: Modal not yet initialized, deferring open request');
+                    // Defer until modal is ready
+                    $(document).ready(function() {
+                        setTimeout(function() {
+                            if (typeof toggleModal === 'function' && !modalOpen) {
+                                toggleModal();
+                            }
+                        }, 100);
+                    });
+                }
+            },
+
+            close: function() {
+                // Close the PQS modal
+                if (typeof toggleModal === 'function' && modalOpen) {
+                    toggleModal();
+                }
+            },
+
+            isOpen: function() {
+                return modalOpen;
+            },
+
+            getStatus: function() {
+                return {
+                    modalOpen: modalOpen,
+                    cacheStatus: cacheStatus,
+                    pluginCount: allPlugins.length,
+                    keyboardShortcut: getShortcutDisplayText()
+                };
+            }
+        };
+
+        console.log('PQS: Coordination system initialized - keyboard handler active');
+    }
+
     // Initialize on document ready
     $(document).ready(function() {
+        // Set up PQS coordination system early
+        setupPQSCoordinationSystem();
+
         // Check if we're on plugins page or cache status page
         const isPluginsPage = $('#the-list').length > 0;
         const isCacheStatusPage = $('#pqs-cache-status-indicator').length > 0;
