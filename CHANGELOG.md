@@ -5,6 +5,36 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2025-08-29
+
+## [1.1.5] - 2025-08-30
+
+### Fixed
+- Prevent duplicate folder labels: inject only on main plugin rows
+  - Skip update notice rows (`.plugin-update-tr`) and inline edit rows
+  - Require presence of the title cell before injecting; removed fallback that appended to first cell
+
+
+## [1.1.4] - 2025-08-30
+
+### Added
+- On-screen PQS Debug panel toggle on Plugins page
+  - Shows cache status, total plugins, row count, injected vs missing labels
+  - Buttons to Inject Labels, Refresh stats, Rebuild Cache
+  - Quick Focus links to scroll to rows missing labels
+- Added a delayed, second injection pass for folder labels to catch late DOM mutations
+- More robust label placement targeting title cell first with fallbacks
+
+### Changed
+- Bumped JS cache schema to 1.1; will rebuild cache if previously cached
+
+
+### Added
+- Display the plugin folder name underneath each plugin's action links on the Plugins page (e.g., "/akismet/")
+  - Non-invasive DOM injection; no core WP hooks altered
+  - Reads folder from row data (data-plugin, checkbox value, or slug) and avoids duplicates
+  - Lightweight CSS matches WP admin aesthetics
+
 ## [1.1.2] - 2025-08-24
 
 ### Added

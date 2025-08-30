@@ -2,7 +2,7 @@
     'use strict';
 
     // Cache configuration
-    const CACHE_VERSION = '1.0';
+    const CACHE_VERSION = '1.1';
     let CACHE_DURATION = 60 * 60 * 1000; // 1 hour in milliseconds (will be overridden by settings)
     const CACHE_KEY = 'pqs_plugin_cache';
     const CACHE_META_KEY = 'pqs_cache_meta';
@@ -126,12 +126,75 @@
             createModal();
             bindKeyboardShortcut();
 
+            // Create debug UI early so we can see live info
+            try { createPqsDebugUI(); } catch(e) { console.warn('PQS: Debug UI init failed', e); }
+
+            // Inject plugin folder names below action links on the Plugins page
+            try {
+                injectPluginFolderLabels();
+                // Fallback: run once more shortly after to catch late DOM mutations
+                setTimeout(() => { injectPluginFolderLabels(); updatePqsDebugPanel(); }, 400);
+            } catch(e) { console.warn('PQS: Folder label injection failed', e); }
+
+            // Update debug panel after initial pass
+            try { updatePqsDebugPanel(); } catch(e) {}
+
             const loadTime = performance.now() - startTime;
             const shortcutText = getShortcutDisplayText();
             console.log(`Plugin Quick Search: Ready in ${loadTime.toFixed(2)}ms! Cache status: ${cacheStatus}`);
             console.log(`Found ${allPlugins.length} plugins`);
         });
     });
+
+    // Inject plugin folder names under action links (Plugins page)
+    function injectPluginFolderLabels() {
+        const $rows = $('#the-list tr');
+        if ($rows.length === 0) return;
+
+        $rows.each(function() {
+            const $row = $(this);
+
+            // Skip non-primary rows like update notices and inline edit rows
+            if ($row.hasClass('plugin-update-tr') || $row.hasClass('inline-edit-row')) return;
+
+            // Avoid duplicates
+            if ($row.find('.pqs-plugin-folder').length) return;
+
+            const $titleCell = $row.find('td.plugin-title, .plugin-title');
+            if (!$titleCell.length) return; // only inject on main plugin rows
+
+            const folder = getPluginFolderFromRow($row);
+            if (!folder) return;
+
+            const $actions = $titleCell.find('.row-actions').first();
+            const $label = $('<div class="pqs-plugin-folder" />').text('/' + folder + '/').attr('title','Plugin folder');
+
+            if ($actions.length) {
+                $actions.after($label);
+            } else {
+                $titleCell.append($label);
+            }
+        });
+    }
+
+    function getPluginFolderFromRow($row) {
+        // Try common sources for the plugin file path (e.g., "akismet/akismet.php")
+        let filePath = $row.attr('data-plugin') || '';
+
+
+        if (!filePath) {
+            const $cb = $row.find("th.check-column input[type='checkbox'][name='checked[]']").first();
+            if ($cb.length) filePath = $cb.val() || '';
+        }
+        if (!filePath) {
+            // Fallback: some rows may store slug; we only want the folder
+            const slug = $row.attr('data-slug') || '';
+            if (slug) return slug; // not perfect, but close
+        }
+        if (!filePath) return '';
+        const idx = filePath.indexOf('/');
+        return idx > -1 ? filePath.substring(0, idx) : filePath.replace(/\.php$/i, '');
+    }
 
     // Initialize cache API only (for cache status page)
     function initializeCacheAPIOnly() {
@@ -201,6 +264,8 @@
             if (!cacheData || !metaData) return null;
 
             return {
+
+
                 plugins: JSON.parse(cacheData),
                 meta: JSON.parse(metaData)
             };
@@ -277,6 +342,7 @@
                 const $link = $(this);
                 const linkText = $link.text().toLowerCase().trim();
 
+
                 if (linkText.includes('deactivate')) {
                     isActive = true;
                 }
@@ -291,6 +357,9 @@
                 isActive = true;
             }
 
+            // Extract folder for caching/injection
+            const folder = getPluginFolderFromRow($row) || '';
+
             // Create plugin object (without DOM element for caching)
             const pluginData = {
                 name: pluginName,
@@ -300,6 +369,7 @@
                 version: version,
                 isActive: isActive,
                 settingsUrl: settingsUrl,
+                folder: folder,
                 rowIndex: $row.index(), // Store index to find element later
                 element: $row[0], // Add DOM element for immediate use
                 wordCount: pluginName.split(/\s+/).length,
@@ -351,6 +421,11 @@
             const $row = $('#the-list tr').eq(plugin.rowIndex || index);
             if ($row.length) {
                 plugin.element = $row[0];
+                // Backfill folder if missing in cache
+                if (!plugin.folder) {
+                    const f = getPluginFolderFromRow($row);
+                    if (f) plugin.folder = f;
+                }
             }
         });
     }
@@ -411,6 +486,9 @@
                 isActive = true;
             }
 
+            // Extract folder for caching/injection
+            const folder = getPluginFolderFromRow($row) || '';
+
             // Pre-cache lowercase strings for faster searching
             allPlugins.push({
                 name: pluginName,
@@ -420,6 +498,7 @@
                 version: version,
                 isActive: isActive, // Activation status
                 settingsUrl: settingsUrl, // Settings page URL (null if no settings)
+                folder: folder,
                 element: $row[0],
                 // Pre-calculate some properties for scoring
                 wordCount: pluginName.split(/\s+/).length,
@@ -536,7 +615,7 @@
 
         $('body').append(modalHTML);
     }
-    
+
     // Get shortcut display text for UI
     function getShortcutDisplayText() {
         if (pluginSettings.keyboard_shortcut === 'cmd_k') {
@@ -588,26 +667,26 @@
                 closeModal();
             }
         });
-        
+
         // Handle search input with debouncing
         $('#pqs-search-input').on('input', function() {
             const query = sanitizeInput($(this).val());
-            
+
             // Clear existing timer
             if (debounceTimer) {
                 clearTimeout(debounceTimer);
             }
-            
+
             // Add loading state
             $('#pqs-results').addClass('pqs-loading');
-            
+
             // Set new timer for debounced search
             debounceTimer = setTimeout(function() {
                 filterPlugins(query);
                 $('#pqs-results').removeClass('pqs-loading');
             }, DEBOUNCE_DELAY);
         });
-        
+
         // Handle keyboard navigation in search (no debounce needed)
         $('#pqs-search-input').on('keydown', function(e) {
             if (e.key === 'ArrowDown') {
@@ -632,14 +711,14 @@
                 }
             }
         });
-        
+
         // Click outside to close
         $('#pqs-overlay').on('click', function(e) {
             if (e.target === this) {
                 closeModal();
             }
         });
-        
+
         // Click on result
         $(document).on('click', '.pqs-result-item', function() {
             const index = $(this).data('index');
@@ -647,7 +726,7 @@
             selectCurrentResult();
         });
     }
-    
+
     // Toggle modal visibility
     function toggleModal() {
         if (modalOpen) {
@@ -656,7 +735,7 @@
             openModal();
         }
     }
-    
+
     // Open the modal
     function openModal() {
         modalOpen = true;
@@ -673,7 +752,7 @@
         // Show all plugins initially
         filterPlugins('');
     }
-    
+
     // Close the modal
     function closeModal() {
         modalOpen = false;
@@ -695,7 +774,7 @@
         // Remove any existing highlight boxes
         removeHighlightBoxes();
     }
-    
+
     // Basic Levenshtein distance implementation
     function levenshteinDistance(a, b) {
         const matrix = Array.from({ length: a.length + 1 }, () =>
@@ -810,7 +889,7 @@
 
         return score;
     }
-    
+
     // Filter plugins with Phase 2 optimizations: Incremental filtering + Tiered search
     function filterPlugins(query) {
         selectedIndex = 0;
@@ -953,35 +1032,35 @@
 
         renderResults();
     }
-    
+
     // Optimized render function
     function renderResults() {
         const $results = $('#pqs-results');
-        
+
         if (filteredPlugins.length === 0) {
             $results.html('<div class="pqs-no-results">No plugins found</div>');
             return;
         }
-        
+
         // Build HTML in memory first (faster than multiple DOM operations)
         let html = '';
         let addedSeparator = false;
         const query = $('#pqs-search-input').val().toLowerCase();
-        
+
         filteredPlugins.forEach((plugin, index) => {
             // Check if this is likely a primary/exact match
             const isExactMatch = plugin.nameLower === query;
             const isStrongMatch = plugin.nameLower.startsWith(query);
-            
+
             // Add separator after first result if it's a strong match and there are more results
-            if (index === 1 && !addedSeparator && 
+            if (index === 1 && !addedSeparator &&
                 filteredPlugins.length > 1 &&
-                (filteredPlugins[0].nameLower === query || 
+                (filteredPlugins[0].nameLower === query ||
                  filteredPlugins[0].nameLower.startsWith(query))) {
                 html += '<div class="pqs-separator">Other matches</div>';
                 addedSeparator = true;
             }
-            
+
             // Show version for the first result
             const showVersion = index === 0 && plugin.version;
 
@@ -1006,10 +1085,10 @@
                 </div>
             `;
         });
-        
+
         // Single DOM update
         $results.html(html);
-        
+
         // Add custom styles for match types if not present
         if (!$('#pqs-match-styles').length) {
             const styles = `
@@ -1134,22 +1213,22 @@
             $('head').append(styles);
         }
     }
-    
+
     // Navigate through results
     function navigateResults(direction) {
         if (filteredPlugins.length === 0) return;
-        
+
         selectedIndex += direction;
-        
+
         if (selectedIndex < 0) {
             selectedIndex = filteredPlugins.length - 1;
         } else if (selectedIndex >= filteredPlugins.length) {
             selectedIndex = 0;
         }
-        
+
         $('.pqs-result-item').removeClass('selected');
         $('.pqs-result-item').eq(selectedIndex).addClass('selected');
-        
+
         // Scroll to selected item if needed
         const $selected = $('.pqs-result-item.selected');
         const $results = $('#pqs-results');
@@ -1158,7 +1237,7 @@
             const itemBottom = itemTop + $selected.outerHeight();
             const scrollTop = $results.scrollTop();
             const viewHeight = $results.height();
-            
+
             if (itemTop < 0) {
                 $results.scrollTop(scrollTop + itemTop);
             } else if (itemBottom > viewHeight) {
@@ -1379,15 +1458,15 @@
     function createHighlightBox($element) {
         // Remove any existing highlight boxes first
         removeHighlightBoxes();
-        
+
         // Get the position and dimensions of the target element
         const offset = $element.offset();
         const width = $element.outerWidth();
         const height = $element.outerHeight();
-        
+
         // Create the highlight box
         const $highlightBox = $('<div class="pqs-highlight-box"></div>');
-        
+
         // Style the highlight box with user settings
         $highlightBox.css({
             position: 'absolute',
@@ -1403,10 +1482,10 @@
             opacity: pluginSettings.highlight_opacity,
             animation: 'pqsPulse 2s ease-in-out infinite'
         });
-        
+
         // Add the highlight box to the body
         $('body').append($highlightBox);
-        
+
         // Add pulse animation styles if not already present
         if (!$('#pqs-highlight-styles').length) {
             // Convert hex color to RGB for box-shadow
@@ -1442,40 +1521,40 @@
             $('head').append(styles);
         }
     }
-    
+
     // Remove all highlight boxes
     function removeHighlightBoxes() {
         $('.pqs-highlight-box').remove();
     }
-    
+
     // Select the current result and filter the page
     function selectCurrentResult() {
         if (filteredPlugins.length === 0) return;
-        
+
         const selectedPlugin = filteredPlugins[selectedIndex];
-        
+
         // Hide all plugins first
         $('#the-list tr').hide();
-        
+
         // Show only matching plugins
         filteredPlugins.forEach(plugin => {
             $(plugin.element).show();
         });
-        
+
         // Close modal
         closeModal();
-        
+
         // Create highlight box around the selected plugin
         if (selectedPlugin && selectedPlugin.element) {
             const $selectedElement = $(selectedPlugin.element);
-            
+
             // Scroll to the selected plugin
             $('html, body').animate({
                 scrollTop: $selectedElement.offset().top - 150
             }, 300, function() {
                 // Create the highlight box after scrolling is complete
                 createHighlightBox($selectedElement);
-                
+
                 // Remove the highlight after user-configured duration
                 setTimeout(function() {
                     $('.pqs-highlight-box').fadeOut(pluginSettings.fade_duration, function() {
@@ -1485,7 +1564,7 @@
             });
         }
     }
-    
+
     // Escape HTML to prevent XSS
     function escapeHtml(text) {
         if (typeof text !== 'string') {
@@ -1509,7 +1588,7 @@
         // Remove potentially dangerous characters and limit length
         return input.replace(/[<>]/g, '').substring(0, 100);
     }
-    
+
     // Handle window resize to update highlight box position
     $(window).on('resize scroll', function() {
         const $highlightBox = $('.pqs-highlight-box');
@@ -1520,7 +1599,7 @@
                 const offset = $highlightedRow.offset();
                 const width = $highlightedRow.outerWidth();
                 const height = $highlightedRow.outerHeight();
-                
+
                 $highlightBox.css({
                     top: offset.top - 10,
                     left: offset.left - 10,
@@ -1530,5 +1609,5 @@
             }
         }
     });
-    
+
 })(jQuery);
