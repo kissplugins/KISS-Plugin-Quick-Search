@@ -37,19 +37,34 @@ class PluginQuickSearch {
         add_action('wp_ajax_pqs_run_cache_diagnostics', array($this, 'ajax_run_cache_diagnostics'));
         // Expose a server-side row injection on SBI Self Tests page
         add_filter('kiss_sbi_self_test_results', array($this, 'inject_sbi_self_test_row'));
+        // Display theme folder names on Appearance > Themes (integrated from standalone helper)
+        add_action('admin_footer-themes.php', array($this, 'display_theme_folder_names'));
+        // Extra safety: also print in head for some admin setups where footer hooks are deferred
+        add_action('admin_head-themes.php', array($this, 'display_theme_folder_names'));
+        // Last-resort safety: print at generic admin footer if we are on themes screen
+        add_action('admin_print_footer_scripts', array($this, 'maybe_print_theme_folder_script'));
+        // Debug probes to verify hooks firing (safe, tiny, and runs only when on themes.php)
+        add_action('admin_head', array($this, 'pqs_debug_probe_head'), 1);
+        add_action('admin_print_footer_scripts', array($this, 'pqs_debug_probe_footer'), 1);
     }
 
     public function enqueue_scripts($hook) {
-        // Load on plugins.php page, cache status page, and SBI Self Tests page
+        // Load on plugins.php page, cache status page, SBI Self Tests page, and themes.php
         $is_plugins = ($hook === 'plugins.php');
         $is_cache_status = ($hook === 'plugins_page_pqs-cache-status');
         $is_sbi_tests = ($hook === 'plugins_page_kiss-smart-batch-installer-tests');
-        if (!$is_plugins && !$is_cache_status && !$is_sbi_tests) {
+        $is_themes = ($hook === 'themes.php');
+        if (!$is_plugins && !$is_cache_status && !$is_sbi_tests && !$is_themes) {
             return;
         }
 
-        // Security: Check if user has permission to manage plugins
-        if (!current_user_can('activate_plugins')) {
+        // Security: Check permissions per screen
+        // - Plugins + status pages require plugin management
+        // - Themes page requires theme management
+        if (($is_plugins || $is_cache_status || $is_sbi_tests) && !current_user_can('activate_plugins')) {
+            return;
+        }
+        if ($is_themes && !current_user_can('switch_themes')) {
             return;
         }
 
@@ -62,14 +77,16 @@ class PluginQuickSearch {
             $version = file_exists($js_file_path) ? filemtime($js_file_path) : self::VERSION;
         }
 
-        // Enqueue the JavaScript with cache busting
-        wp_enqueue_script(
-            'plugin-quick-search',
-            plugin_dir_url(__FILE__) . 'plugin-quick-search.js',
-            array('jquery'),
-            $version,
-            true
-        );
+        // Enqueue the JavaScript with cache busting (plugins and cache status pages)
+        if ($is_plugins || $is_cache_status || $is_sbi_tests) {
+            wp_enqueue_script(
+                'plugin-quick-search',
+                plugin_dir_url(__FILE__) . 'plugin-quick-search.js',
+                array('jquery'),
+                $version,
+                true
+            );
+        }
 
         // If on SBI Self Tests page, inject a small counter script to publish a row
         if ($is_sbi_tests) {
@@ -109,6 +126,29 @@ class PluginQuickSearch {
         // Add inline CSS
         if ($is_plugins || $is_cache_status) {
             wp_add_inline_style('wp-admin', $this->get_inline_styles());
+        }
+
+        // Inject theme folder labels on themes.php via inline script as a fallback
+        if ($is_themes) {
+            wp_enqueue_script('jquery');
+            $inline = "(function(){\n" .
+                " if (!window.console) return;\n" .
+                " console.log('[PQS] Theme Folders: enqueue inline');\n" .
+                " jQuery(function($){\n" .
+                "  var onThemes=$('body').hasClass('themes-php');\n" .
+                "  if(!onThemes) return;\n" .
+                "  var $container=$('#themes');\n" .
+                "  function getSlug($el){\n" .
+                "    var s=$el.data('slug')||$el.attr('data-slug')||$el.data('stylesheet')||$el.attr('data-stylesheet')||$el.data('template')||$el.attr('data-template')||'';\n" .
+                "    if(!s){ var id=$el.attr('id')||''; var m=id.match(/theme-([A-Za-z0-9_-]+)/); if(m&&m[1]) s=m[1]; }\n" .
+                "    return s;\n" .
+                "  }\n" .
+                "  function inject(){ var $tiles=$('.theme'), added=0; $tiles.each(function(){ var $t=$(this); if($t.find('.pqs-theme-folder').length) return; var slug=getSlug($t); if(!slug) return; var $n=$t.find('.theme-name').first(); if(!$n.length) return; $n.after('<p class=\"theme-folder-path pqs-theme-folder\" style=\"word-break: break-all; font-size:12px; margin:5px 0 0; color:#646970;\">.../themes/'+slug+'/</p>'); added++; }); console.log('[PQS] injected (enqueue):', added);}\n" .
+                "  inject(); setTimeout(inject,400);\n" .
+                "  try{ if($container.length && 'MutationObserver' in window){ var mo=new MutationObserver(function(){ inject(); }); mo.observe($container.get(0),{childList:true,subtree:true}); window.pqsThemeFoldersObserver=mo; console.log('[PQS] MO attached (enqueue)'); } }catch(e){ console.warn('[PQS] observer error (enqueue)', e); }\n" .
+                " });\n" .
+                "})();";
+            wp_add_inline_script('jquery', $inline);
         }
     }
 
@@ -517,6 +557,148 @@ class PluginQuickSearch {
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
             }
         ';
+    }
+
+    /**
+     * Display theme folder paths on Appearance > Themes cards.
+     * This mirrors the standalone helper that appended
+     * ".../themes/{slug}/" under each theme name.
+     */
+    public function display_theme_folder_names() {
+        // Safety: only run in admin and for themes screen
+        if (!is_admin()) {
+            return;
+        }
+        ?>
+        <script type="text/javascript">
+        (function(){
+            if (!window.console) { return; }
+            console.log('[PQS] Theme Folders: init');
+            jQuery(document).ready(function($) {
+                var onThemes = $('body').hasClass('themes-php');
+                console.log('[PQS] onThemesPage:', onThemes);
+                if (!onThemes) { return; }
+
+                var $container = $('#themes');
+                console.log('[PQS] container#themes present:', $container.length > 0);
+
+                function getSlug($el){
+                    var slug = $el.data('slug') || $el.attr('data-slug') ||
+                               $el.data('stylesheet') || $el.attr('data-stylesheet') ||
+                               $el.data('template') || $el.attr('data-template') || '';
+                    if (!slug) {
+                        var id = $el.attr('id') || '';
+                        var m = id.match(/theme-([A-Za-z0-9_-]+)/);
+                        if (m && m[1]) slug = m[1];
+                    }
+                    return slug;
+                }
+
+                function inject(){
+                    var $tiles = $('.theme');
+                    var added = 0;
+                    console.log('[PQS] scanning tiles:', $tiles.length);
+                    $tiles.each(function(){
+                        var $tile = $(this);
+                        if ($tile.find('.pqs-theme-folder').length) return; // avoid duplicates
+                        var slug = getSlug($tile);
+                        if (!slug) { console.log('[PQS] no slug for tile', this); return; }
+                        var $name = $tile.find('.theme-name').first();
+                        if (!$name.length) { console.log('[PQS] missing .theme-name for', slug); return; }
+                        var html = '<p class="theme-folder-path pqs-theme-folder" style="word-break: break-all; font-size: 12px; margin: 5px 0 0; color: #646970;">' +
+                                   '.../themes/' + slug + '/' +
+                                   '</p>';
+                        $name.after(html);
+                        added++;
+                    });
+                    console.log('[PQS] injected labels:', added);
+                }
+
+                // Initial pass + a delayed pass (themes can render after DOM ready)
+                inject();
+                setTimeout(inject, 400);
+
+                // Watch for DOM changes to catch late renders/search filters
+                try {
+                    if ($container.length && 'MutationObserver' in window) {
+                        var mo = new MutationObserver(function(){ inject(); });
+                        mo.observe($container.get(0), { childList: true, subtree: true });
+                        window.pqsThemeFoldersObserver = mo;
+                        console.log('[PQS] MutationObserver attached');
+                    }
+                } catch(e) {
+                    console.warn('[PQS] observer error', e);
+                }
+            });
+        })();
+        </script>
+        <?php
+    }
+
+    /**
+     * As an extra fallback, print the injector at the generic admin footer
+     * after all scripts, but only on the Themes screen.
+     */
+    public function maybe_print_theme_folder_script() {
+        if (!is_admin()) return;
+        $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+        if (!$screen || (strpos($screen->id, 'themes') === false)) {
+            return;
+        }
+        ?>
+        <script type="text/javascript">
+        (function(){
+            var boot = function(){
+                if (typeof jQuery !== 'function') { setTimeout(boot, 50); return; }
+                if (!document.body.classList.contains('themes-php')) return;
+                var $ = jQuery;
+                function slugOf($el){
+                    var s = $el.data('slug') || $el.attr('data-slug') ||
+                            $el.data('stylesheet') || $el.attr('data-stylesheet') ||
+                            $el.data('template') || $el.attr('data-template') || '';
+                    if (!s) {
+                        var id = $el.attr('id') || '';
+                        var m = id.match(/theme-([A-Za-z0-9_-]+)/);
+                        if (m && m[1]) s = m[1];
+                    }
+                    return s;
+                }
+                function inject(){
+                    var added = 0;
+                    $('.theme').each(function(){
+                        var $t = $(this);
+                        if ($t.find('.pqs-theme-folder').length) return;
+                        var slug = slugOf($t);
+                        if (!slug) return;
+                        var $n = $t.find('.theme-name').first();
+                        if (!$n.length) return;
+                        $n.after('<p class="theme-folder-path pqs-theme-folder" style="word-break: break-all; font-size: 12px; margin: 5px 0 0; color: #646970;">.../themes/' + slug + '/</p>');
+                        added++;
+                    });
+                    if (window.console) console.log('[PQS] injected (fallback):', added);
+                }
+                inject(); setTimeout(inject, 400);
+            };
+            boot();
+        })();
+        </script>
+        <?php
+    }
+
+    /**
+     * Tiny debug probes to confirm whether our hooks execute on the page.
+     */
+    public function pqs_debug_probe_head() {
+        if (!is_admin()) return;
+        ?>
+        <script>(function(){ if (document.body && document.body.classList.contains('themes-php')) { try { console.log('[PQS] probe: admin_head running on Themes'); } catch(e){} } })();</script>
+        <?php
+    }
+    public function pqs_debug_probe_footer() {
+        if (!is_admin()) return;
+        ?>
+        <script>(function(){ if (document.body && document.body.classList.contains('themes-php')) { try { console.log('[PQS] probe: admin_footer running on Themes'); } catch(e){} } })();</script>
+        <?php
     }
 
     /**
