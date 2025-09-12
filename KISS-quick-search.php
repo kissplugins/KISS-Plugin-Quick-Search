@@ -3,7 +3,7 @@
  * Plugin Name: KISS Plugin Quick Search
  * Plugin URI: https://kissplugins.com/
  * Description: Adds keyboard shortcut (Cmd+Shift+P or Ctrl+Shift+P) to quickly search and filter plugins on the Plugins page
- * Version: 1.1.5
+ * Version: 1.1.6
  * Author: KISS Plugins
  * License: GPL v2 or later
  */
@@ -13,10 +13,13 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// Load theme folders module
+require_once plugin_dir_path(__FILE__) . 'theme-folders.php';
+
 class PluginQuickSearch {
 
     // Plugin version for cache busting
-    const VERSION = '1.1.5';
+    const VERSION = '1.1.6';
 
     // Default settings
     private $default_settings = array(
@@ -37,27 +40,19 @@ class PluginQuickSearch {
         add_action('wp_ajax_pqs_run_cache_diagnostics', array($this, 'ajax_run_cache_diagnostics'));
         // Expose a server-side row injection on SBI Self Tests page
         add_filter('kiss_sbi_self_test_results', array($this, 'inject_sbi_self_test_row'));
-        // Themes page: inject theme folder labels via a single robust hook
-        add_action('admin_footer', array($this, 'inject_theme_folders_script'));
     }
 
     public function enqueue_scripts($hook) {
-        // Load on plugins.php page, cache status page, SBI Self Tests page, and themes.php
+        // Load on plugins.php page, cache status page, and SBI Self Tests page
         $is_plugins = ($hook === 'plugins.php');
         $is_cache_status = ($hook === 'plugins_page_pqs-cache-status');
         $is_sbi_tests = ($hook === 'plugins_page_kiss-smart-batch-installer-tests');
-        $is_themes = ($hook === 'themes.php');
-        if (!$is_plugins && !$is_cache_status && !$is_sbi_tests && !$is_themes) {
+        if (!$is_plugins && !$is_cache_status && !$is_sbi_tests) {
             return;
         }
 
-        // Security: Check permissions per screen
-        // - Plugins + status pages require plugin management
-        // - Themes page requires theme management
-        if (($is_plugins || $is_cache_status || $is_sbi_tests) && !current_user_can('activate_plugins')) {
-            return;
-        }
-        if ($is_themes && !current_user_can('switch_themes')) {
+        // Security: Check permissions
+        if (!current_user_can('activate_plugins')) {
             return;
         }
 
@@ -527,83 +522,6 @@ class PluginQuickSearch {
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
             }
         ';
-    }
-
-    /**
-     * Display theme folder paths on Appearance > Themes page
-     */
-    public function inject_theme_folders_script() {
-        if (!is_admin()) return;
-        if (!function_exists('get_current_screen')) return;
-        $screen = get_current_screen();
-        if (!$screen || $screen->id !== 'themes') {
-            return;
-        }
-        ?>
-        <script type="text/javascript">
-        jQuery(document).ready(function($) {
-            // Function to inject folder labels
-            function injectThemeFolders() {
-                $('.theme').each(function() {
-                    var $theme = $(this);
-
-                    // Skip if already has folder label
-                    if ($theme.find('.pqs-theme-folder').length > 0) {
-                        return;
-                    }
-
-                    // Get theme slug from various possible attributes
-                    var slug = $theme.attr('data-slug') ||
-                              $theme.data('slug') ||
-                              $theme.attr('aria-describedby');
-
-                    if (slug) {
-                        // Clean up the slug if it contains extra info
-                        slug = slug.replace('-action', '').replace('-name', '');
-
-                        // Find the theme name element
-                        var $nameElement = $theme.find('.theme-name');
-                        if ($nameElement.length > 0) {
-                            // Create and insert the folder label
-                            var folderHtml = '<div class="pqs-theme-folder" style="' +
-                                'font-size: 11px; ' +
-                                'color: #72777c; ' +
-                                'margin-top: 5px; ' +
-                                'font-style: italic;' +
-                                '">Folder: /themes/' + slug + '/</div>';
-
-                            $nameElement.after(folderHtml);
-                        }
-                    }
-                });
-            }
-
-            // Initial injection
-            injectThemeFolders();
-
-            // Set up MutationObserver for dynamic content
-            var targetNode = document.querySelector('.themes');
-            if (targetNode) {
-                var observer = new MutationObserver(function(mutations) {
-                    // Use a small delay to ensure DOM is ready
-                    setTimeout(injectThemeFolders, 50);
-                });
-
-                observer.observe(targetNode, {
-                    childList: true,
-                    subtree: true
-                });
-            }
-
-            // Also reinject on search/filter events
-            $(document).on('theme:rendered', injectThemeFolders);
-
-            // Fallback: reinject after a delay to catch any missed themes
-            setTimeout(injectThemeFolders, 500);
-            setTimeout(injectThemeFolders, 1000);
-        });
-        </script>
-        <?php
     }
 
     /**
