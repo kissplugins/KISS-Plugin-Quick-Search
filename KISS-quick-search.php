@@ -3,9 +3,10 @@
  * Plugin Name: KISS Plugin Quick Search
  * Plugin URI: https://kissplugins.com/
  * Description: Adds keyboard shortcut (Cmd+Shift+P or Ctrl+Shift+P) to quickly search and filter plugins on the Plugins page
- * Version: 1.1.5
+ * Version: 1.1.6
  * Author: KISS Plugins
  * License: GPL v2 or later
+ * Text Domain: kiss-quick-search
  */
 
 // Prevent direct access
@@ -13,10 +14,22 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// Include the Plugin Update Checker
+require_once plugin_dir_path( __FILE__ ) . 'lib/plugin-update-checker/plugin-update-checker.php';
+use YahnisElsts\PluginUpdateChecker\v5\PucFactory;
+
+$update_checker = PucFactory::buildUpdateChecker(
+    'https://github.com/kissplugins/KISS-Plugin-Quick-Search',
+    __FILE__,
+    'kiss-quick-search'
+);
+// Optional: Set the branch that contains the stable release.
+$update_checker->setBranch( 'main' );
+
 class PluginQuickSearch {
 
     // Plugin version for cache busting
-    const VERSION = '1.1.5';
+    const VERSION = '1.1.6';
 
     // Default settings
     private $default_settings = array(
