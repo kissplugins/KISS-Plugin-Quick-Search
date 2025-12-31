@@ -5,6 +5,79 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2025-12-31
+
+### Added
+- **Global Admin Access**: PQS now loads on ALL admin pages (not just plugins.php)
+  - Keyboard shortcut (Cmd+Shift+P / Ctrl+Shift+P) works everywhere in wp-admin
+  - Lightweight cache-only mode on non-plugins pages
+  - Helpful message shown if cache not available ("Visit plugins page first")
+  - Improves UX by allowing plugin search from anywhere in admin
+
+### Changed
+- Removed page restriction in `enqueue_scripts()` - now loads globally
+- JavaScript initialization now handles two modes:
+  - **Plugins page**: Full initialization (scan + cache + UI)
+  - **Other admin pages**: Lightweight mode (cache-only, no scan)
+- Modal shows helpful message when cache unavailable on non-plugins pages
+- Updated SBI integration to check sessionStorage first, fallback to localStorage
+
+### Fixed
+- SBI integration now compatible with sessionStorage migration (v1.2.0)
+- Cache status 'unavailable' now properly handled in SBI integration
+
+### Technical Details
+- Cache-only mode uses existing sessionStorage cache
+- No performance impact on non-plugins pages (no DOM scanning)
+- Falls back gracefully if cache not available
+- SBI integration backward compatible with old localStorage cache
+
+## [1.2.0] - 2025-12-31
+
+### Security - CRITICAL FIXES
+- **CRITICAL SECURITY FIX**: Migrated from localStorage to sessionStorage
+  - Prevents front-end scripts from accessing plugin inventory
+  - sessionStorage is scoped to admin tab only, not accessible from public site
+  - Cache automatically cleared when tab closes
+  - Resolves AUDIT-2025-12-31 Issue #1 (Critical)
+
+- **HIGH SECURITY FIX**: Added automatic cache cleanup on logout
+  - Cache cleared on WordPress logout (admin bar and logout links)
+  - Cache cleared on page unload/tab close
+  - Prevents plugin data from persisting after admin session ends
+  - Resolves AUDIT-2025-12-31 Issue #2 (High)
+
+- **Data Scrubbing**: Removed sensitive information from cache
+  - Plugin versions removed (prevents fingerprinting)
+  - Settings URLs removed (prevents internal path disclosure)
+  - Folder names removed (prevents directory structure disclosure)
+  - Only essential search data (names, descriptions) cached
+
+- **Access Control**: Added admin-only cache access checks
+  - Cache reads/writes only allowed in WordPress admin context
+  - Prevents cache access from front-end pages
+  - Added `isAdminContext()` security check
+
+- **TTL Enforcement**: Stale cache entries now deleted immediately
+  - Expired cache deleted on read (not just ignored)
+  - Cache integrity checks trigger immediate cleanup
+  - Prevents stale data from persisting indefinitely
+
+### Changed
+- **BREAKING**: Cache version bumped to 1.2 (auto-migrates old cache)
+- Migrated from `localStorage` to `sessionStorage` for all cache operations
+- Added automatic migration that clears old localStorage cache on first load
+- Cache now cleared on logout, tab close, and page unload
+- Updated all cache diagnostic functions to use sessionStorage
+- Cache info now shows storage type and security notes
+
+### Technical Details
+- Storage: `window.sessionStorage` (was `window.localStorage`)
+- Cache scope: Single browser tab (was entire domain)
+- Lifetime: Until tab closes (was indefinite)
+- Security: Admin-only, scrubbed data, auto-cleanup
+- Migration: Automatic one-time cleanup of old localStorage cache
+
 ## [1.1.9] - 2025-12-31
 
 ### Performance

@@ -3,7 +3,7 @@
  * Plugin Name: KISS Plugin Quick Search
  * Plugin URI: https://kissplugins.com/
  * Description: Adds keyboard shortcut (Cmd+Shift+P or Ctrl+Shift+P) to quickly search and filter plugins on the Plugins page
- * Version: 1.1.9
+ * Version: 1.2.1
  * Author: KISS Plugins
  * License: GPL v2 or later
  * Text Domain: kiss-quick-search
@@ -29,7 +29,7 @@ $update_checker->setBranch( 'main' );
 class PluginQuickSearch {
 
     // Plugin version for cache busting
-    const VERSION = '1.1.9';
+    const VERSION = '1.2.1';
 
     // Default settings
     private $default_settings = array(
@@ -60,18 +60,19 @@ class PluginQuickSearch {
     }
 
     public function enqueue_scripts($hook) {
-        // Load on plugins.php page, cache status page, and SBI Self Tests page
-        $is_plugins = ($hook === 'plugins.php');
-        $is_cache_status = ($hook === 'plugins_page_pqs-cache-status');
-        $is_sbi_tests = ($hook === 'plugins_page_kiss-smart-batch-installer-tests');
-        if (!$is_plugins && !$is_cache_status && !$is_sbi_tests) {
-            return;
-        }
-
         // Security: Check if user has permission to manage plugins
         if (!current_user_can('activate_plugins')) {
             return;
         }
+
+        // Load on all admin pages for global keyboard shortcut access
+        // This allows users to search plugins from anywhere in wp-admin
+        $is_plugins = ($hook === 'plugins.php');
+        $is_cache_status = ($hook === 'plugins_page_pqs-cache-status');
+        $is_sbi_tests = ($hook === 'plugins_page_kiss-smart-batch-installer-tests');
+
+        // Note: We load globally but only scan plugins on plugins.php
+        // Other pages will use cached data or show "visit plugins page first" message
 
         // Get file modification time for cache busting
         $js_file_path = plugin_dir_path(__FILE__) . 'plugin-quick-search.js';
