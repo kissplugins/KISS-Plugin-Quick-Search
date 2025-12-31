@@ -5,6 +5,22 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.8] - 2025-12-31
+
+### Security
+- **MEDIUM SECURITY FIX**: Added regex escaping to prevent injection attacks
+  - Added `escapeRegExp()` helper function to sanitize user input before RegExp construction
+  - Prevents SyntaxError from special characters (e.g., `[`, `(`, `\`)
+  - Prevents ReDoS (Regular Expression Denial of Service) attacks from malicious patterns
+  - Added try-catch fallback to gracefully handle any regex failures
+  - Resolves AUDIT-2025-12-31 Issue #5
+
+### Changed
+- Improved search scoring logic with safer pattern matching
+  - Word boundary detection now uses escaped user input
+  - Fallback to simple string matching if regex construction fails
+  - More robust error handling in relevance scoring
+
 ## [1.1.7] - 2025-12-31
 
 ### Fixed

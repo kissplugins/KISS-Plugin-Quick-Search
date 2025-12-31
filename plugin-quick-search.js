@@ -798,6 +798,13 @@
         return matrix[a.length][b.length];
     }
 
+    // Escape special regex characters to prevent injection attacks
+    // Protects against ReDoS and SyntaxError from user input
+    function escapeRegExp(string) {
+        // Escape all special regex metacharacters
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
     // Optimized relevance scoring with early exits
     function calculateRelevanceScore(plugin, lowerQuery) {
         // Use pre-cached lowercase strings
@@ -819,10 +826,6 @@
         // Query is the first word in the name
         else if (lowerName.split(/\s+/)[0] === lowerQuery) {
             score = 400;
-        }
-        // Name contains query as a whole word
-        else if (new RegExp('\\b' + lowerQuery + '\\b', 'i').test(plugin.name)) {
-            score = 300;
         }
         // Multi-word query: check if all words are present
         else if (lowerQuery.includes(' ')) {
@@ -847,15 +850,33 @@
                 }
             }
         }
-        // Name contains query (partial match)
-        else if (lowerName.includes(lowerQuery)) {
+        // Name contains query as a whole word (with safe regex escaping)
+        else {
+            try {
+                const escapedQuery = escapeRegExp(lowerQuery);
+                const wordBoundaryRegex = new RegExp('\\b' + escapedQuery + '\\b', 'i');
+                if (wordBoundaryRegex.test(plugin.name)) {
+                    score = 300;
+                }
+            } catch (e) {
+                // Fallback: if regex fails, check for partial match
+                if (lowerName.includes(lowerQuery)) {
+                    score = 100;
+                    // Bonus for earlier position
+                    const position = lowerName.indexOf(lowerQuery);
+                    score += Math.max(50 - position, 0);
+                }
+            }
+        }
+        // If no word boundary match, try partial match
+        if (score === 0 && lowerName.includes(lowerQuery)) {
             score = 100;
             // Bonus for earlier position
             const position = lowerName.indexOf(lowerQuery);
             score += Math.max(50 - position, 0);
         }
-        // Fuzzy match using Levenshtein distance
-        else if (distance <= threshold) {
+        // Fuzzy match using Levenshtein distance (only if still no match)
+        if (score === 0 && distance <= threshold) {
             score = 120 - distance * 20;
         }
 
