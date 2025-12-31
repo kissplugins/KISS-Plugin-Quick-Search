@@ -1498,8 +1498,8 @@
                 } : {r: 255, g: 0, b: 0}; // fallback to red
             };
 
-            const rgb = hexToRgb(highlightSettings.highlight_color);
-            const baseOpacity = highlightSettings.highlight_opacity;
+            const rgb = hexToRgb(pluginSettings.highlight_color);
+            const baseOpacity = pluginSettings.highlight_opacity;
 
             const styles = `
                 <style id="pqs-highlight-styles">

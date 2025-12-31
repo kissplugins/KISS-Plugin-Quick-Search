@@ -5,6 +5,15 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.7] - 2025-12-31
+
+### Fixed
+- **CRITICAL BUG**: Fixed ReferenceError in highlight box animation
+  - Changed `highlightSettings` to `pluginSettings` on lines 1501-1502
+  - Bug was causing highlight box pulse animation to fail with undefined variable error
+  - Highlight box now properly uses user-configured color and opacity settings
+  - Resolves AUDIT-2025-12-31 Issue #4
+
 ## [1.1.6] - 2025-09-30
 
 ### ADDED REMOTE UPDATE FEATURE
