@@ -5,6 +5,22 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2025-12-31
+
+### Fixed
+- **CRITICAL**: Fixed memory exhaustion error on non-plugins pages
+  - Added null check before calling `isCacheValid()` on non-plugins pages
+  - Added guard to prevent `clearCache()` from being called more than once per second
+  - Added guard to prevent duplicate event listener registration in `setupCacheCleanup()`
+  - Fixed potential infinite loop when cache validation fails on non-plugins pages
+  - Improved cache validation logic to skip plugin count check on non-plugins pages
+
+### Technical Details
+- Issue: `isCacheValid()` was checking DOM plugin count on non-plugins pages, causing false invalidation
+- Solution: Added `skipCountCheck` parameter to `isCacheValid()` function
+- Added rate limiting to `clearCache()` to prevent excessive calls
+- Added `cleanupListenersRegistered` flag to prevent duplicate listener registration
+
 ## [1.2.1] - 2025-12-31
 
 ### Added

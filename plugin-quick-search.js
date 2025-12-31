@@ -154,13 +154,23 @@
 
             // Try to load from cache only (don't scan)
             const cachedData = getCachedData();
-            if (cachedData && isCacheValid(cachedData.meta)) {
-                allPlugins = cachedData.plugins;
-                cacheStatus = 'fresh';
-                console.log(`Plugin Quick Search: Loaded ${allPlugins.length} plugins from cache`);
 
-                // Re-associate DOM elements (will be empty on non-plugins pages, but safe)
-                associateDOMElements();
+            // Check if cache is available and valid (skip count check on non-plugins pages)
+            if (cachedData) {
+                // getCachedData already validated TTL, just check version
+                if (isCacheValid(cachedData.meta, true)) {
+                    allPlugins = cachedData.plugins;
+                    cacheStatus = 'fresh';
+                    console.log(`Plugin Quick Search: Loaded ${allPlugins.length} plugins from cache`);
+
+                    // Re-associate DOM elements (will be empty on non-plugins pages, but safe)
+                    associateDOMElements();
+                } else {
+                    // Cache invalid (version mismatch)
+                    allPlugins = [];
+                    cacheStatus = 'unavailable';
+                    console.log('Plugin Quick Search: Cache version mismatch. Visit plugins page to rebuild cache.');
+                }
             } else {
                 // No cache available
                 allPlugins = [];
@@ -227,7 +237,15 @@
     }
 
     // Security: Set up cache cleanup on logout and page unload
+    let cleanupListenersRegistered = false;
     function setupCacheCleanup() {
+        // Prevent duplicate listener registration
+        if (cleanupListenersRegistered) {
+            console.log('Plugin Quick Search: Cache cleanup listeners already registered');
+            return;
+        }
+        cleanupListenersRegistered = true;
+
         // Clear cache on page unload (when admin closes tab/navigates away)
         window.addEventListener('beforeunload', function() {
             // Note: sessionStorage auto-clears on tab close, but we clear explicitly
@@ -363,8 +381,18 @@
     }
 
     // Clear cache (security: force clear on logout/expiry)
+    // Add guard to prevent excessive clearing
+    let lastClearTime = 0;
     function clearCache() {
         try {
+            // Prevent clearing more than once per second (guard against loops)
+            const now = Date.now();
+            if (now - lastClearTime < 1000) {
+                console.warn('Plugin Quick Search: Skipping cache clear (too frequent)');
+                return;
+            }
+            lastClearTime = now;
+
             storage.removeItem(CACHE_KEY);
             storage.removeItem(CACHE_META_KEY);
             console.log('Plugin Quick Search: Cache cleared');
@@ -374,7 +402,8 @@
     }
 
     // Check if cache is still valid (includes integrity check)
-    function isCacheValid(meta) {
+    // Pass skipCountCheck=true when on non-plugins pages to avoid false invalidation
+    function isCacheValid(meta, skipCountCheck = false) {
         if (!meta || meta.version !== CACHE_VERSION) {
             return false;
         }
@@ -387,6 +416,11 @@
         if (isExpired) {
             clearCache();
             return false;
+        }
+
+        // Skip count check if requested (for non-plugins pages)
+        if (skipCountCheck) {
+            return true;
         }
 
         // Also check if plugin count matches (quick integrity check)
