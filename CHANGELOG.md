@@ -5,6 +5,113 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.6] - 2025-09-30
+
+### ADDED REMOTE UPDATE FEATURE
+ - **IMPROVED**: Plugin can update in one click and show the latest update. 
+
+## [1.1.5] - 2025-08-30
+
+### Fixed
+- Prevent duplicate folder labels: inject only on main plugin rows
+  - Skip update notice rows (`.plugin-update-tr`) and inline edit rows
+  - Require presence of the title cell before injecting; removed fallback that appended to first cell
+
+
+## [1.1.4] - 2025-08-30
+
+### Added
+- On-screen PQS Debug panel toggle on Plugins page
+  - Shows cache status, total plugins, row count, injected vs missing labels
+  - Buttons to Inject Labels, Refresh stats, Rebuild Cache
+  - Quick Focus links to scroll to rows missing labels
+- Added a delayed, second injection pass for folder labels to catch late DOM mutations
+- More robust label placement targeting title cell first with fallbacks
+
+### Changed
+- Bumped JS cache schema to 1.1; will rebuild cache if previously cached
+
+
+### Added
+- Display the plugin folder name underneath each plugin's action links on the Plugins page (e.g., "/akismet/")
+  - Non-invasive DOM injection; no core WP hooks altered
+  - Reads folder from row data (data-plugin, checkbox value, or slug) and avoids duplicates
+  - Lightweight CSS matches WP admin aesthetics
+
+## [1.1.2] - 2025-08-24
+
+### Added
+- **Keyboard Shortcut Coordination System**: Implemented coordination system to prevent conflicts with other plugins
+  - Added `window.pqsKeyboardHandlerActive` marker to indicate PQS is handling keyboard shortcuts
+  - Exposed `window.PQS` public API for other plugins to integrate with PQS modal
+  - Early initialization of coordination markers to prevent race conditions
+  - Smart routing system for unified keyboard shortcut experience
+
+### Enhanced
+- **Developer Ecosystem Support**: Created comprehensive integration framework for third-party plugins
+  - Added DEVELOPER-KEYCOMBO.md with complete integration guide
+  - Provided coordination system examples and best practices
+  - Enhanced testing procedures and integration checklist
+  - Enabled ecosystem expansion with proper conflict prevention
+
+- **Smart Batch Installer Integration**: Coordinated keyboard shortcut behavior with SBI plugin
+  - Unified Cmd/Ctrl+Shift+P experience across both plugins
+  - Context-aware routing based on current page
+  - Graceful fallback when coordination system not available
+
+### Technical Improvements
+- **Public API Exposure**: Added standardized interface for external plugin integration
+  - `window.PQS.open()` - Opens PQS modal
+  - `window.PQS.close()` - Closes PQS modal
+  - `window.PQS.isOpen()` - Returns modal state
+  - `window.PQS.getStatus()` - Returns comprehensive PQS status
+
+## [1.1.1] - 2025-08-20
+
+### Enhanced
+- **Improved Cache Status Page Layout**: Moved Cache API Information section into the main cache overview area
+  - Eliminated large empty space in cache status dashboard
+  - Better integration of API documentation with cache status information
+  - More cohesive and space-efficient layout for the cache management interface
+
+## [1.1.0] - 2025-08-19
+
+### 🚀 Major Performance Update - Intelligent Caching System
+
+#### Added
+- **Intelligent localStorage Caching**: Plugin data is now cached for 1 hour, reducing page load times by 60-80%
+- **Smart Cache Validation**: Automatic cache integrity checks using timestamp, version, and plugin count validation
+- **Background Verification**: Non-blocking cache verification to ensure data accuracy without affecting UI performance
+- **Configurable Cache Duration**: Set cache duration from 5 minutes to 24 hours in settings
+- **Cache Management Controls**:
+  - `Ctrl+Shift+R` keyboard shortcut to force cache rebuild
+  - Auto-refresh cache option for automatic updates
+  - Cache status display in search modal
+- **Graceful Fallback**: Automatically falls back to fresh scanning if cache is invalid or corrupted
+- **Performance Monitoring**: Detailed logging of cache status, scan times, and performance metrics
+- **Added API Documentation**: CACHE-API.md file added
+
+#### Enhanced
+- **Customizable Keyboard Shortcuts**: Choose between `Cmd/Ctrl+Shift+P` (default) or `Cmd/Ctrl+K` (VS Code style)
+- **iOS-Style Toggle Switch**: Beautiful toggle interface for keyboard shortcut selection
+- **Enhanced Settings Page**: New cache management section with real-time status and controls
+- **Improved Modal UI**:
+  - Dynamic plugin count in search placeholder
+  - Cache status indicator
+  - Additional keyboard shortcut help
+
+#### Technical Improvements
+- **Optimized DOM Scanning**: Reduced from every page load to once per hour (or cache duration)
+- **Smart Data Structure**: Cacheable plugin objects without DOM references for localStorage compatibility
+- **Cache Integrity Verification**: Spot-checks first few plugins to ensure cache accuracy
+- **Version-Aware Caching**: Automatic cache invalidation on plugin updates
+- **Error Recovery**: Comprehensive error handling with automatic fallback to fresh data
+
+#### Developer Features
+- **Global Cache API**: Exposed `window.pqsRebuildCache()`, `window.pqsCacheStatus()`, and `window.pqsClearCache()` for external access
+- **Cache Location**: Data stored in browser localStorage with keys `pqs_plugin_cache` and `pqs_cache_meta`
+- **Extensible Architecture**: Other plugins can leverage the same caching pattern for performance improvements
+
 ## [1.0.12] - 2025-08-19
 
 ### Improved
