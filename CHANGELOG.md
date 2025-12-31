@@ -5,6 +5,29 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.9] - 2025-12-31
+
+### Performance
+- **HIGH PERFORMANCE FIX**: Optimized cache status page polling to reduce server load
+  - Implemented Page Visibility API to pause polling when tab is hidden
+  - Increased polling interval from 30s to 60s (50% reduction in requests)
+  - Added server-side transient caching (5 minutes) for plugin count
+  - Prevents expensive `get_plugins()` filesystem scans on every poll
+  - Auto-invalidates server cache when plugins are activated/deactivated/updated
+  - Resolves AUDIT-2025-12-31 Issue #3
+
+### Changed
+- Cache status page now intelligently pauses when browser tab is inactive
+- Server-side plugin count cached for 5 minutes to avoid repeated filesystem scans
+- Polling resumes and refreshes immediately when tab becomes visible
+- Added console logging for visibility state changes (debugging)
+
+### Technical Details
+- Uses `document.visibilitychange` event to detect tab visibility
+- WordPress transient `pqs_server_plugin_count` caches plugin count
+- Cache invalidation hooks: `activated_plugin`, `deactivated_plugin`, `deleted_plugin`, `upgrader_process_complete`
+- Estimated server load reduction: 75-90% on idle tabs
+
 ## [1.1.8] - 2025-12-31
 
 ### Security
