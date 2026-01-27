@@ -2,10 +2,14 @@
     'use strict';
 
     // Cache configuration
-    const CACHE_VERSION = '1.1';
+    const CACHE_VERSION = '1.2'; // Incremented for sessionStorage migration
     let CACHE_DURATION = 60 * 60 * 1000; // 1 hour in milliseconds (will be overridden by settings)
     const CACHE_KEY = 'pqs_plugin_cache';
     const CACHE_META_KEY = 'pqs_cache_meta';
+
+    // Security: Use sessionStorage instead of localStorage
+    // sessionStorage is cleared when tab closes and not accessible from front-end
+    const storage = window.sessionStorage;
 
     let modalOpen = false;
     let selectedIndex = 0;
@@ -90,11 +94,6 @@
         const isPluginsPage = $('#the-list').length > 0;
         const isCacheStatusPage = $('#pqs-cache-status-indicator').length > 0;
 
-        if (!isPluginsPage && !isCacheStatusPage) {
-            console.log('Plugin Quick Search: Not on plugins or cache status page, skipping initialization');
-            return;
-        }
-
         // Load settings from PHP if available
         if (typeof pqs_ajax !== 'undefined') {
             if (pqs_ajax.version) {
@@ -118,32 +117,73 @@
             return;
         }
 
-        // Full initialization for plugins page
-        console.log('Plugin Quick Search: Initializing with intelligent cache...');
-        const startTime = performance.now();
+        // Security: Set up cache cleanup on logout and page unload
+        setupCacheCleanup();
 
-        initializeWithCache().then(() => {
+        // Initialize based on page type
+        if (isPluginsPage) {
+            // Full initialization for plugins page (scan + cache)
+            console.log('Plugin Quick Search: Initializing on plugins page with intelligent cache...');
+            const startTime = performance.now();
+
+            initializeWithCache().then(() => {
+                createModal();
+                bindKeyboardShortcut();
+
+                // Create debug UI early so we can see live info
+                try { createPqsDebugUI(); } catch(e) { console.warn('PQS: Debug UI init failed', e); }
+
+                // Inject plugin folder names below action links on the Plugins page
+                try {
+                    injectPluginFolderLabels();
+                    // Fallback: run once more shortly after to catch late DOM mutations
+                    setTimeout(() => { injectPluginFolderLabels(); updatePqsDebugPanel(); }, 400);
+                } catch(e) { console.warn('PQS: Folder label injection failed', e); }
+
+                // Update debug panel after initial pass
+                try { updatePqsDebugPanel(); } catch(e) {}
+
+                const loadTime = performance.now() - startTime;
+                const shortcutText = getShortcutDisplayText();
+                console.log(`Plugin Quick Search: Ready in ${loadTime.toFixed(2)}ms! Cache status: ${cacheStatus}`);
+                console.log(`Found ${allPlugins.length} plugins`);
+            });
+        } else {
+            // Lightweight initialization for other admin pages (cache-only, no scan)
+            console.log('Plugin Quick Search: Initializing on non-plugins page (cache-only mode)...');
+
+            // Try to load from cache only (don't scan)
+            const cachedData = getCachedData();
+
+            // Check if cache is available and valid (skip count check on non-plugins pages)
+            if (cachedData) {
+                // getCachedData already validated TTL, just check version
+                if (isCacheValid(cachedData.meta, true)) {
+                    allPlugins = cachedData.plugins;
+                    cacheStatus = 'fresh';
+                    console.log(`Plugin Quick Search: Loaded ${allPlugins.length} plugins from cache`);
+
+                    // Re-associate DOM elements (will be empty on non-plugins pages, but safe)
+                    associateDOMElements();
+                } else {
+                    // Cache invalid (version mismatch)
+                    allPlugins = [];
+                    cacheStatus = 'unavailable';
+                    console.log('Plugin Quick Search: Cache version mismatch. Visit plugins page to rebuild cache.');
+                }
+            } else {
+                // No cache available
+                allPlugins = [];
+                cacheStatus = 'unavailable';
+                console.log('Plugin Quick Search: No cache available. Visit plugins page to build cache.');
+            }
+
+            // Always create modal and bind keyboard shortcut (even with empty cache)
             createModal();
             bindKeyboardShortcut();
 
-            // Create debug UI early so we can see live info
-            try { createPqsDebugUI(); } catch(e) { console.warn('PQS: Debug UI init failed', e); }
-
-            // Inject plugin folder names below action links on the Plugins page
-            try {
-                injectPluginFolderLabels();
-                // Fallback: run once more shortly after to catch late DOM mutations
-                setTimeout(() => { injectPluginFolderLabels(); updatePqsDebugPanel(); }, 400);
-            } catch(e) { console.warn('PQS: Folder label injection failed', e); }
-
-            // Update debug panel after initial pass
-            try { updatePqsDebugPanel(); } catch(e) {}
-
-            const loadTime = performance.now() - startTime;
-            const shortcutText = getShortcutDisplayText();
-            console.log(`Plugin Quick Search: Ready in ${loadTime.toFixed(2)}ms! Cache status: ${cacheStatus}`);
-            console.log(`Found ${allPlugins.length} plugins`);
-        });
+            console.log('Plugin Quick Search: Ready! Press Cmd+Shift+P (or Ctrl+Shift+P) to search plugins.');
+        }
     });
 
     // Inject plugin folder names under action links (Plugins page)
@@ -194,6 +234,39 @@
         if (!filePath) return '';
         const idx = filePath.indexOf('/');
         return idx > -1 ? filePath.substring(0, idx) : filePath.replace(/\.php$/i, '');
+    }
+
+    // Security: Set up cache cleanup on logout and page unload
+    let cleanupListenersRegistered = false;
+    function setupCacheCleanup() {
+        // Prevent duplicate listener registration
+        if (cleanupListenersRegistered) {
+            console.log('Plugin Quick Search: Cache cleanup listeners already registered');
+            return;
+        }
+        cleanupListenersRegistered = true;
+
+        // Clear cache on page unload (when admin closes tab/navigates away)
+        window.addEventListener('beforeunload', function() {
+            // Note: sessionStorage auto-clears on tab close, but we clear explicitly
+            // to ensure cleanup even if browser doesn't properly clear sessionStorage
+            clearCache();
+        });
+
+        // Clear cache on WordPress logout
+        // WordPress logout links have 'action=logout' in the URL
+        $(document).on('click', 'a[href*="action=logout"]', function() {
+            console.log('Plugin Quick Search: Logout detected, clearing cache');
+            clearCache();
+        });
+
+        // Also listen for WordPress admin bar logout link
+        $('#wp-admin-bar-logout a').on('click', function() {
+            console.log('Plugin Quick Search: Admin bar logout detected, clearing cache');
+            clearCache();
+        });
+
+        console.log('Plugin Quick Search: Cache cleanup listeners registered');
     }
 
     // Initialize cache API only (for cache status page)
@@ -255,28 +328,82 @@
         }
     }
 
-    // Get cached data from localStorage
+    // Security: Check if we're in admin context
+    function isAdminContext() {
+        // Check if we're in WordPress admin area
+        return document.body.classList.contains('wp-admin') ||
+               window.location.pathname.includes('/wp-admin/');
+    }
+
+    // Get cached data from sessionStorage (admin-only)
     function getCachedData() {
+        // Security: Only read cache in admin context
+        if (!isAdminContext()) {
+            console.warn('Plugin Quick Search: Cache access denied - not in admin context');
+            return null;
+        }
+
         try {
-            const cacheData = localStorage.getItem(CACHE_KEY);
-            const metaData = localStorage.getItem(CACHE_META_KEY);
+            const cacheData = storage.getItem(CACHE_KEY);
+            const metaData = storage.getItem(CACHE_META_KEY);
 
             if (!cacheData || !metaData) return null;
 
+            const meta = JSON.parse(metaData);
+
+            // Security: Enforce TTL by deleting stale entries before returning
+            if (!isCacheValidByTime(meta)) {
+                console.log('Plugin Quick Search: Cache expired, deleting stale data');
+                clearCache();
+                return null;
+            }
+
             return {
-
-
                 plugins: JSON.parse(cacheData),
-                meta: JSON.parse(metaData)
+                meta: meta
             };
         } catch (error) {
             console.warn('Plugin Quick Search: Failed to read cache:', error);
+            clearCache(); // Clear corrupted cache
             return null;
         }
     }
 
-    // Check if cache is still valid
-    function isCacheValid(meta) {
+    // Check if cache is valid by timestamp only (for TTL enforcement)
+    function isCacheValidByTime(meta) {
+        if (!meta || meta.version !== CACHE_VERSION) {
+            return false;
+        }
+
+        const now = Date.now();
+        const cacheDuration = pluginSettings.cache_duration_ms || CACHE_DURATION;
+        return (now - meta.timestamp) <= cacheDuration;
+    }
+
+    // Clear cache (security: force clear on logout/expiry)
+    // Add guard to prevent excessive clearing
+    let lastClearTime = 0;
+    function clearCache() {
+        try {
+            // Prevent clearing more than once per second (guard against loops)
+            const now = Date.now();
+            if (now - lastClearTime < 1000) {
+                console.warn('Plugin Quick Search: Skipping cache clear (too frequent)');
+                return;
+            }
+            lastClearTime = now;
+
+            storage.removeItem(CACHE_KEY);
+            storage.removeItem(CACHE_META_KEY);
+            console.log('Plugin Quick Search: Cache cleared');
+        } catch (error) {
+            console.warn('Plugin Quick Search: Failed to clear cache:', error);
+        }
+    }
+
+    // Check if cache is still valid (includes integrity check)
+    // Pass skipCountCheck=true when on non-plugins pages to avoid false invalidation
+    function isCacheValid(meta, skipCountCheck = false) {
         if (!meta || meta.version !== CACHE_VERSION) {
             return false;
         }
@@ -285,17 +412,35 @@
         const cacheDuration = pluginSettings.cache_duration_ms || CACHE_DURATION;
         const isExpired = (now - meta.timestamp) > cacheDuration;
 
+        // If expired, delete it immediately
+        if (isExpired) {
+            clearCache();
+            return false;
+        }
+
+        // Skip count check if requested (for non-plugins pages)
+        if (skipCountCheck) {
+            return true;
+        }
+
         // Also check if plugin count matches (quick integrity check)
         // Only do this check if we're on the plugins page
         const $pluginList = $('#the-list tr');
         if ($pluginList.length > 0) {
             const currentPluginCount = $pluginList.length;
             const cachedPluginCount = meta.pluginCount;
-            return !isExpired && (currentPluginCount === cachedPluginCount);
+            const countMatches = (currentPluginCount === cachedPluginCount);
+
+            if (!countMatches) {
+                console.log('Plugin Quick Search: Cache invalidated - plugin count mismatch');
+                clearCache();
+            }
+
+            return countMatches;
         }
 
-        // If not on plugins page, just check expiration
-        return !isExpired;
+        // If not on plugins page, cache is valid (already checked expiration)
+        return true;
     }
 
     // Scan plugins and update cache
@@ -379,8 +524,14 @@
             allPlugins.push(pluginData);
         });
 
-        // Cache the data
+        // Cache the data (security: admin-only, sessionStorage, scrubbed data)
         try {
+            // Security: Only cache in admin context
+            if (!isAdminContext()) {
+                console.warn('Plugin Quick Search: Cache write denied - not in admin context');
+                return;
+            }
+
             const meta = {
                 timestamp: Date.now(),
                 version: CACHE_VERSION,
@@ -388,17 +539,24 @@
                 scanTime: performance.now() - scanStartTime
             };
 
-            // Create cache-friendly version (without DOM elements)
+            // Security: Create cache-friendly version with sensitive data scrubbed
             const cacheablePlugins = allPlugins.map(plugin => {
-                const { element, ...cacheablePlugin } = plugin;
-                return cacheablePlugin;
+                const {
+                    element,      // Remove DOM element
+                    version,      // Remove version (security: fingerprinting)
+                    settingsUrl,  // Remove settings URL (security: internal paths)
+                    folder,       // Remove folder (security: directory structure)
+                    ...safePlugin
+                } = plugin;
+                return safePlugin;
             });
 
-            localStorage.setItem(CACHE_KEY, JSON.stringify(cacheablePlugins));
-            localStorage.setItem(CACHE_META_KEY, JSON.stringify(meta));
+            // Use sessionStorage instead of localStorage (cleared on tab close)
+            storage.setItem(CACHE_KEY, JSON.stringify(cacheablePlugins));
+            storage.setItem(CACHE_META_KEY, JSON.stringify(meta));
 
             cacheStatus = 'fresh';
-            console.log(`Plugin Quick Search: Cached ${allPlugins.length} plugins in ${meta.scanTime.toFixed(2)}ms`);
+            console.log(`Plugin Quick Search: Cached ${allPlugins.length} plugins in ${meta.scanTime.toFixed(2)}ms (sessionStorage)`);
 
             // Fire cache rebuilt event for other plugins
             document.dispatchEvent(new CustomEvent('pqs-cache-rebuilt', {
@@ -798,6 +956,13 @@
         return matrix[a.length][b.length];
     }
 
+    // Escape special regex characters to prevent injection attacks
+    // Protects against ReDoS and SyntaxError from user input
+    function escapeRegExp(string) {
+        // Escape all special regex metacharacters
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
     // Optimized relevance scoring with early exits
     function calculateRelevanceScore(plugin, lowerQuery) {
         // Use pre-cached lowercase strings
@@ -819,10 +984,6 @@
         // Query is the first word in the name
         else if (lowerName.split(/\s+/)[0] === lowerQuery) {
             score = 400;
-        }
-        // Name contains query as a whole word
-        else if (new RegExp('\\b' + lowerQuery + '\\b', 'i').test(plugin.name)) {
-            score = 300;
         }
         // Multi-word query: check if all words are present
         else if (lowerQuery.includes(' ')) {
@@ -847,15 +1008,33 @@
                 }
             }
         }
-        // Name contains query (partial match)
-        else if (lowerName.includes(lowerQuery)) {
+        // Name contains query as a whole word (with safe regex escaping)
+        else {
+            try {
+                const escapedQuery = escapeRegExp(lowerQuery);
+                const wordBoundaryRegex = new RegExp('\\b' + escapedQuery + '\\b', 'i');
+                if (wordBoundaryRegex.test(plugin.name)) {
+                    score = 300;
+                }
+            } catch (e) {
+                // Fallback: if regex fails, check for partial match
+                if (lowerName.includes(lowerQuery)) {
+                    score = 100;
+                    // Bonus for earlier position
+                    const position = lowerName.indexOf(lowerQuery);
+                    score += Math.max(50 - position, 0);
+                }
+            }
+        }
+        // If no word boundary match, try partial match
+        if (score === 0 && lowerName.includes(lowerQuery)) {
             score = 100;
             // Bonus for earlier position
             const position = lowerName.indexOf(lowerQuery);
             score += Math.max(50 - position, 0);
         }
-        // Fuzzy match using Levenshtein distance
-        else if (distance <= threshold) {
+        // Fuzzy match using Levenshtein distance (only if still no match)
+        if (score === 0 && distance <= threshold) {
             score = 120 - distance * 20;
         }
 
@@ -1036,6 +1215,19 @@
     // Optimized render function
     function renderResults() {
         const $results = $('#pqs-results');
+
+        // Check if cache is unavailable (on non-plugins pages)
+        if (cacheStatus === 'unavailable') {
+            $results.html(`
+                <div class="pqs-no-results">
+                    <div style="margin-bottom: 10px;">⚠️ Plugin cache not available</div>
+                    <div style="font-size: 12px; color: #666;">
+                        Visit the <a href="plugins.php" style="color: #2271b1;">Plugins page</a> first to build the cache.
+                    </div>
+                </div>
+            `);
+            return;
+        }
 
         if (filteredPlugins.length === 0) {
             $results.html('<div class="pqs-no-results">No plugins found</div>');
@@ -1305,13 +1497,37 @@
         }, 3000);
     }
 
+    // Security: Migrate old localStorage cache to sessionStorage (one-time)
+    function migrateOldCache() {
+        try {
+            // Check if old localStorage cache exists
+            const oldCache = localStorage.getItem(CACHE_KEY);
+            const oldMeta = localStorage.getItem(CACHE_META_KEY);
+
+            if (oldCache || oldMeta) {
+                console.log('Plugin Quick Search: Migrating old localStorage cache...');
+                // Clear old localStorage cache (security fix)
+                localStorage.removeItem(CACHE_KEY);
+                localStorage.removeItem(CACHE_META_KEY);
+                console.log('Plugin Quick Search: Old localStorage cache cleared');
+            }
+        } catch (error) {
+            console.warn('Plugin Quick Search: Failed to migrate old cache:', error);
+        }
+    }
+
+    // Run migration on load
+    migrateOldCache();
+
     // Expose rebuild function globally for manual use
     window.pqsRebuildCache = rebuildCache;
     window.pqsCacheStatus = () => cacheStatus;
     window.pqsClearCache = () => {
+        // Clear both sessionStorage (new) and localStorage (legacy)
+        clearCache();
         localStorage.removeItem(CACHE_KEY);
         localStorage.removeItem(CACHE_META_KEY);
-        console.log('Plugin Quick Search: Cache cleared');
+        console.log('Plugin Quick Search: All caches cleared');
     };
 
     // Debug function to test multi-word search
@@ -1389,11 +1605,17 @@
     // Additional diagnostic functions for cache testing
     window.pqsGetCacheInfo = () => {
         try {
-            const cacheData = localStorage.getItem(CACHE_KEY);
-            const metaData = localStorage.getItem(CACHE_META_KEY);
+            // Check sessionStorage (new) first
+            const cacheData = storage.getItem(CACHE_KEY);
+            const metaData = storage.getItem(CACHE_META_KEY);
 
             if (!cacheData || !metaData) {
-                return { exists: false, error: 'Cache data not found' };
+                return {
+                    exists: false,
+                    error: 'Cache data not found',
+                    storageType: 'sessionStorage',
+                    securityNote: 'Using sessionStorage (cleared on tab close)'
+                };
             }
 
             const plugins = JSON.parse(cacheData);
@@ -1408,7 +1630,9 @@
                 version: meta.version,
                 age: Date.now() - meta.timestamp,
                 isValid: isCacheValid(meta),
-                status: cacheStatus
+                status: cacheStatus,
+                storageType: 'sessionStorage',
+                securityNote: 'Sensitive data scrubbed, cleared on logout/tab close'
             };
         } catch (error) {
             return { exists: false, error: error.message };
@@ -1417,18 +1641,23 @@
 
     window.pqsTestCacheIntegrity = () => {
         try {
-            const cacheData = localStorage.getItem(CACHE_KEY);
-            const metaData = localStorage.getItem(CACHE_META_KEY);
+            // Use sessionStorage (new)
+            const cacheData = storage.getItem(CACHE_KEY);
+            const metaData = storage.getItem(CACHE_META_KEY);
 
             if (!cacheData || !metaData) {
-                return { valid: false, error: 'Cache data not found' };
+                return {
+                    valid: false,
+                    error: 'Cache data not found',
+                    storageType: 'sessionStorage'
+                };
             }
 
             const plugins = JSON.parse(cacheData);
             const meta = JSON.parse(metaData);
 
-            // Check if all required fields are present
-            const requiredFields = ['name', 'description', 'status', 'file'];
+            // Check if all required fields are present (updated for scrubbed cache)
+            const requiredFields = ['name', 'nameLower', 'description', 'descriptionLower'];
             const missingFields = [];
 
             plugins.forEach((plugin, index) => {
@@ -1498,8 +1727,8 @@
                 } : {r: 255, g: 0, b: 0}; // fallback to red
             };
 
-            const rgb = hexToRgb(highlightSettings.highlight_color);
-            const baseOpacity = highlightSettings.highlight_opacity;
+            const rgb = hexToRgb(pluginSettings.highlight_color);
+            const baseOpacity = pluginSettings.highlight_opacity;
 
             const styles = `
                 <style id="pqs-highlight-styles">

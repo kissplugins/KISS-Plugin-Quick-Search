@@ -3,7 +3,7 @@
  * Plugin Name: KISS Plugin Quick Search
  * Plugin URI: https://kissplugins.com/
  * Description: Adds keyboard shortcut (Cmd+Shift+P or Ctrl+Shift+P) to quickly search and filter plugins on the Plugins page
- * Version: 1.1.6
+ * Version: 1.2.2
  * Author: KISS Plugins
  * License: GPL v2 or later
  * Text Domain: kiss-quick-search
@@ -29,7 +29,7 @@ $update_checker->setBranch( 'main' );
 class PluginQuickSearch {
 
     // Plugin version for cache busting
-    const VERSION = '1.1.6';
+    const VERSION = '1.2.2';
 
     // Default settings
     private $default_settings = array(
@@ -48,23 +48,31 @@ class PluginQuickSearch {
         add_action('admin_init', array($this, 'settings_init'));
         add_action('wp_ajax_pqs_get_cache_status', array($this, 'ajax_get_cache_status'));
         add_action('wp_ajax_pqs_run_cache_diagnostics', array($this, 'ajax_run_cache_diagnostics'));
+
+        // Invalidate server-side cache when plugins change
+        add_action('activated_plugin', array($this, 'invalidate_server_cache'));
+        add_action('deactivated_plugin', array($this, 'invalidate_server_cache'));
+        add_action('deleted_plugin', array($this, 'invalidate_server_cache'));
+        add_action('upgrader_process_complete', array($this, 'invalidate_server_cache'));
+
         // Expose a server-side row injection on SBI Self Tests page
         add_filter('kiss_sbi_self_test_results', array($this, 'inject_sbi_self_test_row'));
     }
 
     public function enqueue_scripts($hook) {
-        // Load on plugins.php page, cache status page, and SBI Self Tests page
-        $is_plugins = ($hook === 'plugins.php');
-        $is_cache_status = ($hook === 'plugins_page_pqs-cache-status');
-        $is_sbi_tests = ($hook === 'plugins_page_kiss-smart-batch-installer-tests');
-        if (!$is_plugins && !$is_cache_status && !$is_sbi_tests) {
-            return;
-        }
-
         // Security: Check if user has permission to manage plugins
         if (!current_user_can('activate_plugins')) {
             return;
         }
+
+        // Load on all admin pages for global keyboard shortcut access
+        // This allows users to search plugins from anywhere in wp-admin
+        $is_plugins = ($hook === 'plugins.php');
+        $is_cache_status = ($hook === 'plugins_page_pqs-cache-status');
+        $is_sbi_tests = ($hook === 'plugins_page_kiss-smart-batch-installer-tests');
+
+        // Note: We load globally but only scan plugins on plugins.php
+        // Other pages will use cached data or show "visit plugins page first" message
 
         // Get file modification time for cache busting
         $js_file_path = plugin_dir_path(__FILE__) . 'plugin-quick-search.js';
@@ -927,12 +935,50 @@ document.addEventListener('pqs-cache-rebuilt', function(event) {
         <script type="text/javascript">
         jQuery(document).ready(function($) {
             let testRunning = false;
+            let pollInterval = null;
+            let isPageVisible = true;
 
             // Load initial cache status
             loadCacheStatus();
 
-            // Auto-refresh every 30 seconds
-            setInterval(loadCacheStatus, 30000);
+            // Use Page Visibility API to pause polling when tab is hidden
+            document.addEventListener('visibilitychange', function() {
+                isPageVisible = !document.hidden;
+
+                if (isPageVisible) {
+                    // Tab became visible - resume polling and refresh immediately
+                    console.log('PQS Cache Status: Tab visible, resuming polling');
+                    loadCacheStatus();
+                    startPolling();
+                } else {
+                    // Tab hidden - stop polling to save resources
+                    console.log('PQS Cache Status: Tab hidden, pausing polling');
+                    stopPolling();
+                }
+            });
+
+            // Start polling with visibility check
+            startPolling();
+
+            function startPolling() {
+                // Clear any existing interval
+                stopPolling();
+
+                // Poll every 60 seconds (increased from 30s to reduce server load)
+                pollInterval = setInterval(function() {
+                    // Only poll if page is visible
+                    if (isPageVisible) {
+                        loadCacheStatus();
+                    }
+                }, 60000);
+            }
+
+            function stopPolling() {
+                if (pollInterval) {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                }
+            }
 
             function loadCacheStatus() {
                 $.post(ajaxurl, {
@@ -1335,16 +1381,40 @@ document.addEventListener('pqs-cache-rebuilt', function(event) {
             'plugin_version' => self::VERSION
         );
 
-        // Count installed plugins from server-side
-        if (!function_exists('get_plugins')) {
-            require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        // Use transient cache to avoid expensive get_plugins() calls on every poll
+        // Cache for 5 minutes (300 seconds)
+        $transient_key = 'pqs_server_plugin_count';
+        $cached_count = get_transient($transient_key);
+
+        if ($cached_count !== false) {
+            // Use cached count
+            $status['server_plugin_count'] = $cached_count;
+            $status['plugin_count'] = $cached_count . ' (cached)';
+            $status['cache_source'] = 'transient';
+        } else {
+            // Cache miss - count plugins and cache the result
+            if (!function_exists('get_plugins')) {
+                require_once ABSPATH . 'wp-admin/includes/plugin.php';
+            }
+
+            try {
+                $all_plugins = get_plugins();
+                $plugin_count = count($all_plugins);
+
+                // Cache the count for 5 minutes
+                set_transient($transient_key, $plugin_count, 300);
+
+                $status['server_plugin_count'] = $plugin_count;
+                $status['plugin_count'] = $plugin_count . ' (fresh)';
+                $status['cache_source'] = 'fresh_scan';
+            } catch (Exception $e) {
+                $status['error'] = 'Failed to get plugin information: ' . $e->getMessage();
+                $status['status'] = 'error';
+                return $status;
+            }
         }
 
         try {
-            $all_plugins = get_plugins();
-            $status['server_plugin_count'] = count($all_plugins);
-            $status['plugin_count'] = count($all_plugins) . ' (server count)';
-
             // Check if we can determine more about the environment
             $status['wp_version'] = get_bloginfo('version');
             $status['php_version'] = PHP_VERSION;
@@ -1356,7 +1426,7 @@ document.addEventListener('pqs-cache-rebuilt', function(event) {
                 !preg_match('/MSIE [6-8]\./', $user_agent); // Exclude old IE
 
         } catch (Exception $e) {
-            $status['error'] = 'Failed to get plugin information: ' . $e->getMessage();
+            $status['error'] = 'Failed to get environment information: ' . $e->getMessage();
             $status['status'] = 'error';
         }
 
@@ -1430,6 +1500,14 @@ document.addEventListener('pqs-cache-rebuilt', function(event) {
         );
 
         return $results;
+    }
+
+    /**
+     * Invalidate server-side plugin count cache
+     * Called when plugins are activated, deactivated, deleted, or updated
+     */
+    public function invalidate_server_cache() {
+        delete_transient('pqs_server_plugin_count');
     }
 }
 
