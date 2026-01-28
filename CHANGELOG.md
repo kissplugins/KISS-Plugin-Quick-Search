@@ -22,6 +22,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Maintains Single Source of Truth for storage mechanism
   - Resolves AGENTS.md compliance: State Hygiene & Client-Side Security
 
+- **HIGH**: Declared minimum PHP 7.0 in plugin header
+  - Adds `Requires PHP: 7.0` to avoid fatals on `\Throwable` usage in PHP < 7.0
+  - Aligns with AGENTS.md core requirement for minimum PHP declaration
+
+- **MEDIUM**: Prefixed main class to avoid global collision
+  - Renamed `PluginQuickSearch` to `KISS_Plugin_Quick_Search`
+  - Guarded with `class_exists()` to prevent fatal redeclare collisions
+
+- **LOW**: Hardened settings sanitization defaults
+  - Uses safe defaults for missing settings fields to prevent undefined index notices
+
+- **LOW**: Restored CACHE-API docs link target
+  - Added `CACHE-API.md` to plugin root so admin link resolves
+
+- **LOW**: Aligned internal version constant with plugin header
+  - `KISS_Plugin_Quick_Search::VERSION` now matches 1.2.3 for cache/version displays
+
+- **LOW**: Added backward-compatible class alias
+  - `PluginQuickSearch` now aliases to `KISS_Plugin_Quick_Search` to avoid breaking external references
+
 ### Technical Details
 - All fixes align with AGENTS.md v2.1.0 WordPress development guidelines
 - AJAX timeout pattern follows best practices with retry and backoff

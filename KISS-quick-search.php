@@ -31,7 +31,7 @@ if (!class_exists('KISS_Plugin_Quick_Search')) {
 class KISS_Plugin_Quick_Search {
 
     // Plugin version for cache busting
-    const VERSION = '1.2.2';
+    const VERSION = '1.2.3';
 
     // Default settings
     private $default_settings = array(
@@ -1543,6 +1543,11 @@ document.addEventListener('pqs-cache-rebuilt', function(event) {
         delete_transient('pqs_server_plugin_count');
     }
 }
+}
+
+// Backward compatibility for older integrations referencing the old class name
+if (!class_exists('PluginQuickSearch') && class_exists('KISS_Plugin_Quick_Search')) {
+    class_alias('KISS_Plugin_Quick_Search', 'PluginQuickSearch');
 }
 
 // Initialize the plugin
