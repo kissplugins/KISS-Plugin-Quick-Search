@@ -3,7 +3,8 @@
  * Plugin Name: KISS Plugin Quick Search
  * Plugin URI: https://kissplugins.com/
  * Description: Adds keyboard shortcut (Cmd+Shift+P or Ctrl+Shift+P) to quickly search and filter plugins on the Plugins page
- * Version: 1.2.2
+ * Version: 1.2.3
+ * Requires PHP: 7.0
  * Author: KISS Plugins
  * License: GPL v2 or later
  * Text Domain: kiss-quick-search
@@ -26,7 +27,8 @@ $update_checker = PucFactory::buildUpdateChecker(
 // Optional: Set the branch that contains the stable release.
 $update_checker->setBranch( 'main' );
 
-class PluginQuickSearch {
+if (!class_exists('KISS_Plugin_Quick_Search')) {
+class KISS_Plugin_Quick_Search {
 
     // Plugin version for cache busting
     const VERSION = '1.2.2';
@@ -661,27 +663,33 @@ class PluginQuickSearch {
         $sanitized = array();
 
         // Highlight duration (1000-30000ms)
-        $sanitized['highlight_duration'] = max(1000, min(30000, intval($input['highlight_duration'])));
+        $highlight_duration = $input['highlight_duration'] ?? $this->default_settings['highlight_duration'];
+        $sanitized['highlight_duration'] = max(1000, min(30000, intval($highlight_duration)));
 
         // Fade duration (500-5000ms)
-        $sanitized['fade_duration'] = max(500, min(5000, intval($input['fade_duration'])));
+        $fade_duration = $input['fade_duration'] ?? $this->default_settings['fade_duration'];
+        $sanitized['fade_duration'] = max(500, min(5000, intval($fade_duration)));
 
         // Highlight color (hex color)
-        $sanitized['highlight_color'] = sanitize_hex_color($input['highlight_color']);
+        $highlight_color = $input['highlight_color'] ?? $this->default_settings['highlight_color'];
+        $sanitized['highlight_color'] = sanitize_hex_color($highlight_color);
         if (empty($sanitized['highlight_color'])) {
             $sanitized['highlight_color'] = '#ff0000';
         }
 
         // Highlight opacity (0.1-1.0)
-        $sanitized['highlight_opacity'] = max(0.1, min(1.0, floatval($input['highlight_opacity'])));
+        $highlight_opacity = $input['highlight_opacity'] ?? $this->default_settings['highlight_opacity'];
+        $sanitized['highlight_opacity'] = max(0.1, min(1.0, floatval($highlight_opacity)));
 
         // Keyboard shortcut (cmd_shift_p or cmd_k)
-        $sanitized['keyboard_shortcut'] = in_array($input['keyboard_shortcut'], array('cmd_shift_p', 'cmd_k'))
-            ? $input['keyboard_shortcut']
+        $keyboard_shortcut = $input['keyboard_shortcut'] ?? $this->default_settings['keyboard_shortcut'];
+        $sanitized['keyboard_shortcut'] = in_array($keyboard_shortcut, array('cmd_shift_p', 'cmd_k'), true)
+            ? $keyboard_shortcut
             : 'cmd_shift_p';
 
         // Cache duration (5-1440 minutes)
-        $sanitized['cache_duration'] = max(5, min(1440, intval($input['cache_duration'])));
+        $cache_duration = $input['cache_duration'] ?? $this->default_settings['cache_duration'];
+        $sanitized['cache_duration'] = max(5, min(1440, intval($cache_duration)));
 
         // Auto-refresh cache (boolean)
         $sanitized['auto_refresh_cache'] = !empty($input['auto_refresh_cache']);
@@ -980,13 +988,38 @@ document.addEventListener('pqs-cache-rebuilt', function(event) {
                 }
             }
 
-            function loadCacheStatus() {
-                $.post(ajaxurl, {
-                    action: 'pqs_get_cache_status',
-                    nonce: '<?php echo wp_create_nonce('pqs_cache_status_nonce'); ?>'
-                }, function(response) {
-                    if (response.success) {
-                        updateCacheDisplay(response.data);
+            function loadCacheStatus(retryCount = 0) {
+                $.ajax({
+                    url: ajaxurl,
+                    method: 'POST',
+                    timeout: 10000, // 10 second timeout
+                    data: {
+                        action: 'pqs_get_cache_status',
+                        nonce: '<?php echo wp_create_nonce('pqs_cache_status_nonce'); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            updateCacheDisplay(response.data);
+                        } else {
+                            console.error('PQS: Cache status request returned error:', response);
+                            updateCacheDisplay({ status: 'error', error: 'Server error' });
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        if (status === 'timeout' && retryCount < 3) {
+                            // Exponential backoff: 1s, 2s, 4s
+                            console.log('PQS: Cache status request timed out, retrying in ' + Math.pow(2, retryCount) + 's (attempt ' + (retryCount + 1) + '/3)');
+                            setTimeout(function() {
+                                loadCacheStatus(retryCount + 1);
+                            }, Math.pow(2, retryCount) * 1000);
+                        } else {
+                            console.error('PQS: Cache status request failed:', status, error);
+                            updateCacheDisplay({
+                                status: 'error',
+                                error: status === 'timeout' ? 'Request timed out' : 'Request failed',
+                                plugin_count: 'Error'
+                            });
+                        }
                     }
                 });
             }
@@ -1510,6 +1543,9 @@ document.addEventListener('pqs-cache-rebuilt', function(event) {
         delete_transient('pqs_server_plugin_count');
     }
 }
+}
 
 // Initialize the plugin
-new PluginQuickSearch();
+if (class_exists('KISS_Plugin_Quick_Search')) {
+    new KISS_Plugin_Quick_Search();
+}

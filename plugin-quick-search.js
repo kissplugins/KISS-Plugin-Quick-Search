@@ -696,8 +696,14 @@
     // Public method to force cache refresh
     function rebuildCache() {
         console.log('Plugin Quick Search: Force rebuilding cache...');
-        localStorage.removeItem(CACHE_KEY);
-        localStorage.removeItem(CACHE_META_KEY);
+        storage.removeItem(CACHE_KEY);
+        storage.removeItem(CACHE_META_KEY);
+
+        // Also clean up legacy localStorage (migration)
+        if (window.localStorage) {
+            localStorage.removeItem(CACHE_KEY);
+            localStorage.removeItem(CACHE_META_KEY);
+        }
 
         // Check if we can actually rebuild the cache
         if ($('#the-list tr').length === 0) {
@@ -712,7 +718,7 @@
     // Get cache status text for UI
     function getCacheStatusText() {
         try {
-            const meta = JSON.parse(localStorage.getItem(CACHE_META_KEY) || '{}');
+            const meta = JSON.parse(storage.getItem(CACHE_META_KEY) || '{}');
             const age = meta.timestamp ? Math.round((Date.now() - meta.timestamp) / 1000 / 60) : 0;
 
             switch (cacheStatus) {

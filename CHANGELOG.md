@@ -5,6 +5,29 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.3] - 2026-01-28
+
+### Fixed
+- **CRITICAL**: Added timeout and retry logic to AJAX cache status requests
+  - Implemented 10-second timeout for cache status polling (KISS-quick-search.php:991-1025)
+  - Added exponential backoff retry (3 attempts: 1s, 2s, 4s delays)
+  - Comprehensive error handling for timeout vs other errors
+  - User-friendly error messages in cache status display
+  - Resolves AGENTS.md compliance: Timeouts & Resource Limits
+
+- **MEDIUM**: Fixed inconsistent storage API usage
+  - Replaced direct `localStorage` calls with `storage` constant (sessionStorage) in plugin-quick-search.js
+  - Fixed line 699-700: `rebuildCache()` now uses `storage.removeItem()` with legacy cleanup
+  - Fixed line 721: `getCacheStatusText()` now reads from sessionStorage instead of localStorage
+  - Maintains Single Source of Truth for storage mechanism
+  - Resolves AGENTS.md compliance: State Hygiene & Client-Side Security
+
+### Technical Details
+- All fixes align with AGENTS.md v2.1.0 WordPress development guidelines
+- AJAX timeout pattern follows best practices with retry and backoff
+- Storage API consistency maintains sessionStorage security benefits (tab-scoped, auto-clears)
+- No JSON validation needed (no `json_decode()` operations found in PHP code)
+
 ## [1.2.2] - 2025-12-31
 
 ### Fixed

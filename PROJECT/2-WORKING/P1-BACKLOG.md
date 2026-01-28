@@ -1,0 +1,3 @@
+- [x] AJAX without timeouts	🔴 CRITICAL	Timeouts & Resource Limits	991-999 - COMPLETED 2026-01-28
+- [x] Missing JSON validation	🟠 HIGH	Defensive Error Handling	N/A (no json_decode found in PHP) - COMPLETED 2026-01-28
+- [x] Inconsistent storage API	🟡 MEDIUM	Client-Side Security + State Hygiene	699-700, 721 - COMPLETED 2026-01-28
