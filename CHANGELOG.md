@@ -5,6 +5,52 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-01-29
+
+### Changed
+- **UI/UX**: Complete redesign from centered modal to sticky footer layout
+  - Modal now slides up from bottom of screen instead of appearing in center
+  - Persistent sticky footer design that stretches full width
+  - Eliminates z-index conflicts with WordPress admin sidebar
+  - More reliable positioning that works with all WordPress admin UI elements
+  - Backdrop overlay with semi-transparent background (40% opacity)
+  - Smooth slide-up animation (0.3s ease-out transition)
+  - Click backdrop to close functionality maintained
+
+### Technical Details
+- **Layout**: Changed from centered modal to bottom-anchored sticky footer
+- **Positioning**: `position: fixed; bottom: 0; left: 0; right: 0;`
+- **Max Height**: 60vh to ensure content remains accessible
+- **Flexbox Layout**: Vertical flex container with scrollable results area
+- **Z-Index**: Backdrop at 99999, modal at 100000
+- **Animation**: Slide up from `translateY(100%)` to `translateY(0)`
+- **Backdrop**: Fades from transparent to `rgba(0, 0, 0, 0.4)`
+- **Border**: 3px solid blue top border for visual separation
+- **Shadow**: Upward shadow `0 -5px 30px rgba(0, 0, 0, 0.3)`
+
+### Files Modified
+- `KISS-quick-search.php` (lines 164-307): Complete CSS redesign for sticky footer
+  - `.pqs-overlay`: Now full-screen backdrop with fade transition
+  - `.pqs-modal`: Bottom-anchored with slide-up animation
+  - `.pqs-search-wrapper`: Flex-shrink: 0 to prevent collapse
+  - `.pqs-results`: Flex: 1 with scrollable overflow
+  - `.pqs-help`: Flex-shrink: 0 with flexbox layout for better spacing
+  - Removed old `pqsFadeIn` and `pqsSlideDown` animations
+  - Added new `pqsSlideUp` animation
+
+### Removed
+- Centered modal positioning
+- Top padding for modal placement
+- Old slide-down animation
+
+## [1.2.4] - 2026-01-29 (Deprecated - Replaced by 1.3.0)
+
+### Fixed
+- **UI/UX**: Attempted z-index fix (did not resolve issue)
+  - Increased `.pqs-overlay` z-index from 100000 to 999999
+  - Increased `.pqs-notification` z-index from 100001 to 1000000
+  - Issue: Still fell behind WordPress admin sidebar due to stacking context
+
 ## [1.2.3] - 2026-01-28
 
 ### Fixed

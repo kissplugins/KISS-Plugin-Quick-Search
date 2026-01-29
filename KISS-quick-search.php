@@ -3,7 +3,7 @@
  * Plugin Name: KISS Plugin Quick Search
  * Plugin URI: https://kissplugins.com/
  * Description: Adds keyboard shortcut (Cmd+Shift+P or Ctrl+Shift+P) to quickly search and filter plugins on the Plugins page
- * Version: 1.2.3
+ * Version: 1.3.0
  * Requires PHP: 7.0
  * Author: KISS Plugins
  * License: GPL v2 or later
@@ -161,6 +161,7 @@ class KISS_Plugin_Quick_Search {
 
     private function get_inline_styles() {
         return '
+            /* Backdrop overlay */
             .pqs-overlay {
                 display: none;
                 position: fixed;
@@ -168,30 +169,42 @@ class KISS_Plugin_Quick_Search {
                 left: 0;
                 right: 0;
                 bottom: 0;
-                background: rgba(0, 0, 0, 0.5);
-                z-index: 100000;
-                animation: pqsFadeIn 0.2s ease-out;
+                background: rgba(0, 0, 0, 0);
+                z-index: 99999;
+                transition: background 0.3s ease-out;
             }
 
             .pqs-overlay.active {
-                display: flex;
-                align-items: flex-start;
-                justify-content: center;
-                padding-top: 100px;
+                display: block;
+                background: rgba(0, 0, 0, 0.4);
             }
 
+            /* Sticky footer modal */
             .pqs-modal {
+                position: fixed;
+                left: 0;
+                right: 0;
+                bottom: 0;
                 background: #fff;
-                border-radius: 8px;
-                box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-                width: 90%;
-                max-width: 600px;
-                animation: pqsSlideDown 0.2s ease-out;
+                border-top: 3px solid #2271b1;
+                box-shadow: 0 -5px 30px rgba(0, 0, 0, 0.3);
+                max-height: 60vh;
+                display: flex;
+                flex-direction: column;
+                transform: translateY(100%);
+                transition: transform 0.3s ease-out;
+                z-index: 100000;
+            }
+
+            .pqs-overlay.active .pqs-modal {
+                transform: translateY(0);
             }
 
             .pqs-search-wrapper {
-                padding: 20px;
+                padding: 15px 20px;
                 border-bottom: 1px solid #e0e0e0;
+                background: #f9f9f9;
+                flex-shrink: 0;
             }
 
             .pqs-search-input {
@@ -202,6 +215,7 @@ class KISS_Plugin_Quick_Search {
                 border-radius: 4px;
                 outline: none;
                 transition: border-color 0.2s;
+                background: #fff;
             }
 
             .pqs-search-input:focus {
@@ -210,9 +224,10 @@ class KISS_Plugin_Quick_Search {
             }
 
             .pqs-results {
-                max-height: 400px;
+                flex: 1;
                 overflow-y: auto;
-                padding: 10px;
+                padding: 10px 20px;
+                min-height: 200px;
             }
 
             .pqs-result-item {
@@ -253,17 +268,22 @@ class KISS_Plugin_Quick_Search {
             }
 
             .pqs-help {
-                padding: 10px 20px;
+                padding: 12px 20px;
                 background: #f0f0f0;
                 border-top: 1px solid #e0e0e0;
                 font-size: 12px;
                 color: #666;
-                border-radius: 0 0 8px 8px;
+                flex-shrink: 0;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 15px;
+                align-items: center;
             }
 
             .pqs-help-item {
-                display: inline-block;
-                margin-right: 20px;
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
             }
 
             .pqs-kbd {
@@ -273,6 +293,7 @@ class KISS_Plugin_Quick_Search {
                 padding: 2px 6px;
                 font-family: monospace;
                 font-size: 11px;
+                white-space: nowrap;
             }
 
             .pqs-loading {
@@ -280,18 +301,11 @@ class KISS_Plugin_Quick_Search {
                 pointer-events: none;
             }
 
-            @keyframes pqsFadeIn {
-                from { opacity: 0; }
-                to { opacity: 1; }
-            }
-
-            @keyframes pqsSlideDown {
+            @keyframes pqsSlideUp {
                 from {
-                    opacity: 0;
-                    transform: translateY(-20px);
+                    transform: translateY(100%);
                 }
                 to {
-                    opacity: 1;
                     transform: translateY(0);
                 }
             }
@@ -399,7 +413,7 @@ class KISS_Plugin_Quick_Search {
                 padding: 8px 12px;
                 border-radius: 4px;
                 font-size: 12px;
-                z-index: 100001;
+                z-index: 1000000;
             }
 
             .pqs-notification-success {
