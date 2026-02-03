@@ -3,7 +3,7 @@
  * Plugin Name: KISS Plugin Quick Search
  * Plugin URI: https://kissplugins.com/
  * Description: Adds keyboard shortcut (Cmd+Shift+P or Ctrl+Shift+P) to quickly search and filter plugins on the Plugins page
- * Version: 1.2.3
+	 * Version: 1.2.4
  * Requires PHP: 7.0
  * Author: KISS Plugins
  * License: GPL v2 or later
@@ -30,8 +30,8 @@ $update_checker->setBranch( 'main' );
 if (!class_exists('KISS_Plugin_Quick_Search')) {
 class KISS_Plugin_Quick_Search {
 
-    // Plugin version for cache busting
-    const VERSION = '1.2.3';
+	    	// Plugin version for cache busting
+	    	const VERSION = '1.2.4';
 
     // Default settings
     private $default_settings = array(
@@ -129,10 +129,8 @@ class KISS_Plugin_Quick_Search {
             'settings' => $settings
         ));
 
-        // Add inline CSS
-        if ($is_plugins || $is_cache_status) {
-            wp_add_inline_style('wp-admin', $this->get_inline_styles());
-        }
+	    	// Add inline CSS globally so the modal markup stays hidden on all admin pages
+	    	wp_add_inline_style('wp-admin', $this->get_inline_styles());
     }
 
     /**
