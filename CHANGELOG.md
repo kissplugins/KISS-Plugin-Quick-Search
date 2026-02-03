@@ -5,6 +5,14 @@ All notable changes to the KISS Plugin Quick Search plugin will be documented in
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.4] - 2026-02-03
+
+### Fixed
+- **MEDIUM**: Hid quick search modal markup on non-plugins admin pages
+  - Load PQS inline CSS on all wp-admin pages (not just Plugins and Cache Status)
+  - Ensures the Cmd/Ctrl+Shift+P modal markup stays hidden below the admin footer until activated
+  - Keeps global keyboard shortcut behavior unchanged while preventing visual artifacts in the footer
+
 ## [1.2.3] - 2026-01-28
 
 ### Fixed
